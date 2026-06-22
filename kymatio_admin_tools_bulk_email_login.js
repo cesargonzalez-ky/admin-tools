@@ -110,7 +110,7 @@
       updateRunBtn();
 
       if (!companyId) {
-        setInlineStatus('kym-em-load-status', '<span style="color:#d97706">&#9888; Selecciona una empresa y pulsa Actualizar</span>');
+        setInlineStatus('kym-em-load-status', '<span style="color:#d97706">&#9888; Selecciona una empresa en la cabecera y pulsa “Actualizar empresa y datos”</span>');
         return;
       }
 
@@ -201,18 +201,8 @@
     }
 
     var html = '';
-    html += '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:12px">';
-    html += '<div style="display:flex;align-items:center;gap:10px">';
-    html += '<div style="font-size:22px">&#127970;</div>';
-    html += '<div style="flex:1;min-width:0">';
-    html += '<div style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Empresa activa</div>';
-    html += '<div class="kym-em-cname" style="font-size:16px;font-weight:700;color:#92400e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(companyName || '— Sin empresa') + '</div>';
-    html += '<div style="font-size:10px;color:#64748b">ID: <span class="kym-em-cid">' + escHtml(companyId || '?') + '</span></div>';
-    html += '</div>';
-    html += '<button id="kym-em-refresh" style="background:#b45309;color:white;border:none;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;white-space:nowrap">&#8635; Actualizar</button>';
-    html += '</div></div>';
+    html += '<div id="kym-em-load-status" style="font-size:12px;color:#64748b;margin-bottom:12px;padding:8px 12px;background:#f8fafc;border-radius:6px;min-height:34px;display:flex;align-items:center">Cargando usuarios...</div>';
 
-    html += '<div id="kym-em-load-status" style="font-size:12px;color:#64748b;margin-bottom:12px;padding:8px 12px;background:#f8fafc;border-radius:6px;min-height:34px;display:flex;align-items:center">Cargando datos...</div>';
 
     html += '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#92400e;font-size:12px;line-height:1.5">';
     html += 'Sube un Excel, CSV o TXT con columnas <strong>old_email</strong>, <strong>new_email</strong> y opcionalmente <strong>new_login</strong>. También se aceptan variantes como <strong>email_antiguo</strong>, <strong>email_nuevo</strong> o <strong>login_nuevo</strong>.';
@@ -252,27 +242,6 @@
 
     $('kym-em-refresh-action').onclick = function () {
       window.location.reload();
-    };
-
-    $('kym-em-refresh').onclick = function () {
-      var c = getCurrentCompanyFromVue();
-      companyId = c.id;
-      companyName = c.name;
-      token = localStorage.getItem('token') || localStorage.getItem('access_token') || token;
-      tools.state.companyId = companyId;
-      tools.state.companyName = companyName;
-      tools.state.token = token;
-      tools.state.companyData = null;
-      tools.updateCompanyBanner();
-
-      var nameEl = container.querySelector('.kym-em-cname');
-      var idEl = container.querySelector('.kym-em-cid');
-      if (nameEl) nameEl.textContent = companyName || '—';
-      if (idEl) idEl.textContent = companyId || '?';
-
-      userMap = {};
-      dataLoaded = false;
-      loadData();
     };
 
     $('kym-em-file').addEventListener('change', function (e) {
@@ -442,7 +411,7 @@
     };
 
     if (companyId) loadData();
-    else setInlineStatus('kym-em-load-status', '<span style="color:#d97706">&#9888; Selecciona una empresa y pulsa Actualizar</span>');
+    else setInlineStatus('kym-em-load-status', '<span style="color:#d97706">&#9888; Selecciona una empresa en la cabecera y pulsa “Actualizar empresa y datos”</span>');
   }
 
   KAT.registerModule({
@@ -451,6 +420,7 @@
     icon: '&#9993;',
     order: 110,
     group: 'bulk',
+    forceGuiOnly: true,
     renderGui: renderGui
   });
 })();

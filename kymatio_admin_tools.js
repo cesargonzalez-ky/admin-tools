@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-06-22-modular-03-bulk-01';
+  var VERSION = '2026-06-22-modular-03-bulk-02';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',
@@ -129,7 +129,8 @@
     guiMode: true,
     panel: null,
     modules: [],
-    modulesMap: {}
+    modulesMap: {},
+    activeGroup: 'config'
   };
 
   var KAT = {
@@ -307,7 +308,10 @@
     html += '<button id="kym-adm-refresh-company" style="width:100%;background:#166534;color:white;border:none;padding:8px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">&#8635; Actualizar empresa y datos</button>';
     html += '</div>';
 
-    html += '<div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Selecciona una sección</div>';
+    html += '<div id="kym-adm-tabs" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
+    html += '<button id="kym-adm-tab-config" data-kym-group="config" style="border:1px solid #1e293b;background:#1e293b;color:white;border-radius:8px;padding:9px 10px;font-size:13px;font-weight:700;cursor:pointer">Configuración</button>';
+    html += '<button id="kym-adm-tab-bulk" data-kym-group="bulk" style="border:1px solid #e2e8f0;background:#f8fafc;color:#475569;border-radius:8px;padding:9px 10px;font-size:13px;font-weight:700;cursor:pointer">Acciones masivas</button>';
+    html += '</div>';
     html += '<div id="kym-adm-sections" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px"></div>';
 
     html += '<div id="kym-adm-action" style="display:none">';
@@ -369,44 +373,62 @@
       registerBuiltinModules();
     }
 
+    updateTabs();
+
     if (!state.modules.length) {
       container.innerHTML = '<div style="grid-column:1/-1;padding:12px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030;font-size:12px">No se ha registrado ningún módulo. Revisa la consola del navegador.</div>';
       return;
     }
 
-    function renderGroup(title, groupKey) {
-      var mods = state.modules
-        .filter(function (m) {
-          var g = m.group || 'config';
-          return groupKey === 'config' ? g !== 'bulk' : g === groupKey;
-        })
-        .slice()
-        .sort(function (a, b) {
-          return (a.order || 999) - (b.order || 999);
-        });
-
-      if (!mods.length) return;
-
-      var groupTitle = document.createElement('div');
-      groupTitle.style.cssText = 'grid-column:1/-1;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-top:4px;margin-bottom:2px';
-      groupTitle.textContent = title;
-      container.appendChild(groupTitle);
-
-      mods.forEach(function (mod) {
-        var btn = document.createElement('button');
-        btn.dataset.section = mod.key;
-        btn.className = 'kym-sec-btn';
-        btn.style.cssText = 'background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;text-align:left;cursor:pointer;font-size:13px;font-weight:600;color:#1a202c;display:flex;align-items:center;gap:8px';
-        btn.innerHTML = '<span>' + (mod.icon || '&#8226;') + '</span><span>' + escHtml(mod.label) + '</span>';
-        btn.onclick = function () {
-          selectSection(mod.key);
-        };
-        container.appendChild(btn);
+    var groupKey = state.activeGroup || 'config';
+    var mods = state.modules
+      .filter(function (m) {
+        var g = m.group || 'config';
+        return groupKey === 'config' ? g !== 'bulk' : g === groupKey;
+      })
+      .slice()
+      .sort(function (a, b) {
+        return (a.order || 999) - (b.order || 999);
       });
+
+    if (!mods.length) {
+      container.innerHTML = '<div style="grid-column:1/-1;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#64748b;font-size:12px">No hay módulos disponibles en esta pestaña.</div>';
+      return;
     }
 
-    renderGroup('Configuración', 'config');
-    renderGroup('Acciones masivas', 'bulk');
+    mods.forEach(function (mod) {
+      var btn = document.createElement('button');
+      btn.dataset.section = mod.key;
+      btn.className = 'kym-sec-btn';
+      btn.style.cssText = 'background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;text-align:left;cursor:pointer;font-size:13px;font-weight:600;color:#1a202c;display:flex;align-items:center;gap:8px';
+      btn.innerHTML = '<span>' + (mod.icon || '&#8226;') + '</span><span>' + escHtml(mod.label) + '</span>';
+      btn.onclick = function () {
+        selectSection(mod.key);
+      };
+      container.appendChild(btn);
+    });
+  }
+
+  function updateTabs() {
+    var configTab = $('kym-adm-tab-config');
+    var bulkTab = $('kym-adm-tab-bulk');
+    if (!configTab || !bulkTab) return;
+
+    function paint(btn, active) {
+      btn.style.background = active ? '#1e293b' : '#f8fafc';
+      btn.style.borderColor = active ? '#1e293b' : '#e2e8f0';
+      btn.style.color = active ? 'white' : '#475569';
+    }
+
+    paint(configTab, (state.activeGroup || 'config') === 'config');
+    paint(bulkTab, state.activeGroup === 'bulk');
+  }
+
+  function moduleAllowsJsonToggle(mod) {
+    if (!mod) return false;
+    if (mod.group === 'bulk') return false;
+    if (mod.forceGuiOnly) return false;
+    return typeof mod.renderGui === 'function' && typeof mod.getJson === 'function';
   }
 
   function updateCompanyBanner() {
@@ -455,7 +477,8 @@
     resetActionPanels();
 
     var hasGui = typeof mod.renderGui === 'function';
-    $('kym-adm-mode-switch').style.display = hasGui ? 'block' : 'none';
+    var allowJsonToggle = moduleAllowsJsonToggle(mod);
+    $('kym-adm-mode-switch').style.display = allowJsonToggle ? 'block' : 'none';
     $('kym-adm-btns-row').style.display = hasGui ? 'none' : 'flex';
     $('kym-adm-mode-toggle').innerHTML = '{ } Modo JSON';
 
@@ -489,6 +512,22 @@
       $('kym-adm-action').style.display = 'none';
       resetActionPanels();
       showToast('Empresa actualizada', 'ok');
+    };
+
+    function switchGroup(group) {
+      state.activeGroup = group;
+      state.currentSection = null;
+      $('kym-adm-action').style.display = 'none';
+      resetActionPanels();
+      renderSectionButtons();
+    }
+
+    $('kym-adm-tab-config').onclick = function () {
+      switchGroup('config');
+    };
+
+    $('kym-adm-tab-bulk').onclick = function () {
+      switchGroup('bulk');
     };
 
     $('kym-adm-back').onclick = function () {
@@ -570,7 +609,7 @@
 
     $('kym-adm-mode-toggle').onclick = function () {
       var mod = getCurrentModule();
-      if (!mod || typeof mod.renderGui !== 'function') return;
+      if (!moduleAllowsJsonToggle(mod)) return;
 
       state.guiMode = !state.guiMode;
 
