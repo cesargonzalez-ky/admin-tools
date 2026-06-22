@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-06-22-modular-03-bulk-04';
+  var VERSION = '2026-06-22-modular-03-bulk-05';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',
@@ -11,7 +11,8 @@
     'kymatio_admin_tools_phishing_landings.js',
     'kymatio_admin_tools_bulk_email_login.js',
     'kymatio_admin_tools_bulk_move_users.js',
-    'kymatio_admin_tools_bulk_resurrection.js'
+    'kymatio_admin_tools_bulk_resurrection.js',
+    'kymatio_admin_tools_bulk_loader.js'
   ];
 
   function $(id) {
