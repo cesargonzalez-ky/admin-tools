@@ -7,7 +7,8 @@
     'kymatio_admin_tools_services.js',
     'kymatio_admin_tools_languages.js',
     'kymatio_admin_tools_phishing_domains.js',
-    'kymatio_admin_tools_phishing_attachments.js'
+    'kymatio_admin_tools_phishing_attachments.js',
+    'kymatio_admin_tools_phishing_landings.js'
   ];
 
   function $(id) {
