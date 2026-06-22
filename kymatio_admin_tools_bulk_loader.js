@@ -373,7 +373,7 @@
       html += '<div id="kym-bulk-load-status" style="display:none"></div>';
 
       html += '<div style="background:#ecfdf5;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#166534;font-size:12px;line-height:1.5">';
-      html += '<strong>Kymatio Bulk Loader.</strong> Crea o actualiza usuarios desde Excel, CSV o TXT. Usa la empresa seleccionada en la cabecera general.';
+      html += '<strong>Carga masiva de usuarios.</strong> Crea o actualiza usuarios desde Excel, CSV o TXT. Usa la empresa seleccionada en la cabecera general.';
       html += '<div id="kym-bulk-defaults" style="margin-top:4px;color:#64748b;font-size:11px">Cargando valores por defecto...</div>';
       html += '</div>';
 
@@ -550,7 +550,7 @@
       };
     }
 
-    container.innerHTML = '<div style="padding:14px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#64748b">Cargando Kymatio Bulk Loader...</div>';
+    container.innerHTML = '<div style="padding:14px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#64748b">Cargando Carga masiva de usuarios...</div>';
 
     loadXlsx()
       .then(function () {
@@ -568,7 +568,7 @@
 
   KAT.registerModule({
     key: 'bulk_loader',
-    label: 'Kymatio Bulk Loader',
+    label: 'Carga masiva de usuarios',
     icon: '&#9889;',
     order: 130,
     group: 'bulk',
