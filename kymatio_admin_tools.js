@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-06-22-modular-01';
+  var VERSION = '2026-06-22-modular-02';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',
@@ -157,6 +157,13 @@
     });
 
     if (!exists) state.modules.push(mod);
+
+    // If modules are registered after the panel is already visible, repaint the section buttons.
+    try {
+      if (state.panel && document.getElementById('kym-adm-sections')) renderSectionButtons();
+    } catch (e) {
+      console.warn('Kymatio Admin Tools: could not repaint section buttons', e);
+    }
   }
 
   function registerBuiltinModules() {
@@ -343,7 +350,18 @@
 
   function renderSectionButtons() {
     var container = $('kym-adm-sections');
+    if (!container) return;
     container.innerHTML = '';
+
+    // Safety net: the built-in modules must always exist, even if an external module fails.
+    if (!state.modules.length) {
+      registerBuiltinModules();
+    }
+
+    if (!state.modules.length) {
+      container.innerHTML = '<div style="grid-column:1/-1;padding:12px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030;font-size:12px">No se ha registrado ningún módulo. Revisa la consola del navegador.</div>';
+      return;
+    }
 
     state.modules
       .slice()
@@ -541,14 +559,21 @@
   }
 
   async function start() {
+    // Create the panel first with built-in modules, then load the optional GUI modules.
+    // This avoids showing an empty section list if one external module fails or is cached/blocked.
     registerBuiltinModules();
+    createPanel();
+    renderSectionButtons();
 
     var base = state.baseUrl;
     for (var i = 0; i < MODULE_FILES.length; i++) {
-      await loadScript(base + MODULE_FILES[i]);
+      var result = await loadScript(base + MODULE_FILES[i]);
+      if (!result.ok) {
+        showToast('No se pudo cargar: ' + MODULE_FILES[i], 'err');
+      }
+      renderSectionButtons();
     }
 
-    createPanel();
     console.log('Kymatio Admin Tools loaded:', VERSION, state.modules.map(function (m) { return m.key; }));
     showToast('Kymatio Admin Tools cargado', 'ok');
   }
