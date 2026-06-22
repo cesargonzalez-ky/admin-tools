@@ -1,14 +1,15 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-06-22-modular-02';
+  var VERSION = '2026-06-22-modular-03-bulk-01';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',
     'kymatio_admin_tools_languages.js',
     'kymatio_admin_tools_phishing_domains.js',
     'kymatio_admin_tools_phishing_attachments.js',
-    'kymatio_admin_tools_phishing_landings.js'
+    'kymatio_admin_tools_phishing_landings.js',
+    'kymatio_admin_tools_bulk_email_login.js'
   ];
 
   function $(id) {
@@ -151,13 +152,20 @@
 
   function registerModule(mod) {
     if (!mod || !mod.key) return;
+    if (!mod.group) mod.group = 'config';
+
     state.modulesMap[mod.key] = mod;
 
-    var exists = state.modules.some(function (m) {
-      return m.key === mod.key;
+    var replaced = false;
+    state.modules = state.modules.map(function (m) {
+      if (m.key === mod.key) {
+        replaced = true;
+        return mod;
+      }
+      return m;
     });
 
-    if (!exists) state.modules.push(mod);
+    if (!replaced) state.modules.push(mod);
 
     // If modules are registered after the panel is already visible, repaint the section buttons.
     try {
@@ -171,6 +179,7 @@
     registerModule({
       key: 'surveyflow',
       label: 'Surveyflow',
+      group: 'config',
       icon: '&#128200;',
       order: 20,
       getJson: function (d) {
@@ -186,6 +195,7 @@
     registerModule({
       key: 'phish_land',
       label: 'Phishing: Post-landings',
+      group: 'config',
       icon: '&#128279;',
       order: 60,
       getJson: function (d) {
@@ -364,12 +374,25 @@
       return;
     }
 
-    state.modules
-      .slice()
-      .sort(function (a, b) {
-        return (a.order || 999) - (b.order || 999);
-      })
-      .forEach(function (mod) {
+    function renderGroup(title, groupKey) {
+      var mods = state.modules
+        .filter(function (m) {
+          var g = m.group || 'config';
+          return groupKey === 'config' ? g !== 'bulk' : g === groupKey;
+        })
+        .slice()
+        .sort(function (a, b) {
+          return (a.order || 999) - (b.order || 999);
+        });
+
+      if (!mods.length) return;
+
+      var groupTitle = document.createElement('div');
+      groupTitle.style.cssText = 'grid-column:1/-1;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-top:4px;margin-bottom:2px';
+      groupTitle.textContent = title;
+      container.appendChild(groupTitle);
+
+      mods.forEach(function (mod) {
         var btn = document.createElement('button');
         btn.dataset.section = mod.key;
         btn.className = 'kym-sec-btn';
@@ -380,6 +403,10 @@
         };
         container.appendChild(btn);
       });
+    }
+
+    renderGroup('Configuración', 'config');
+    renderGroup('Acciones masivas', 'bulk');
   }
 
   function updateCompanyBanner() {
