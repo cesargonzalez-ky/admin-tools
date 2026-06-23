@@ -109,7 +109,7 @@
       try{
         status(st,'⌛ Cargando plantillas...','info');
         var json=await fetchJson('https://api.kymatio.com/v2/controller/campaigns/'+encodeURIComponent(val('kat-vlistid'))+'/types');
-        state.list=extractList(json); state.page=0;
+        state.list=extractList(json); state.page=0; state.listId=val('kat-vlistid');
         status(st,'✓ Plantillas cargadas: '+state.list.length,'ok');
         renderRows();
       }catch(e){ status(st,'✗ '+h(e.message),'err'); }
@@ -132,12 +132,18 @@
     function setEventDefault(i){ var e=val('kat-vevent'+i); if(!e) return; var d=DEF[e]||DEF.USER_MANAGER; $('kat-vlvl'+i).value=d.level; $('kat-vcond'+i).value=d.condition==null?'null':d.condition; $('kat-vpunt'+i).value=d.puntuation; $('kat-vicon'+i).value=d.icon; $('kat-vcolor'+i).value=d.color; }
 
     async function loadFullTemplate(item) {
-      // item.id es directamente el templateCampaignId
-      var templateCampaignId = item && (item.id || item.templateCampaignId);
-      if (!templateCampaignId) throw new Error('No se pudo obtener templateCampaignId del item.');
-      var r = await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/' + encodeURIComponent(templateCampaignId));
-      var rec = r.records;
-      if (!rec) throw new Error('No se pudo obtener la configuración completa.');
+      // Paso 1: item tiene campaignTypeId (=454), necesitamos templateCampaignId (=980453)
+      // GET /controller/campaigns/{listId}/templates/{campaignTypeId} -> templateCampaignId
+      var listId  = val('kat-vlistid') || state.listId;
+      var typeId  = item && (item.campaignTypeId || item.typeId || item.id);
+      if (!listId || !typeId) throw new Error('No se pudo obtener listId o campaignTypeId del item.');
+      var r1 = await fetchJson('https://api.kymatio.com/v2/controller/campaigns/' + encodeURIComponent(listId) + '/templates/' + encodeURIComponent(typeId));
+      var templateCampaignId = r1.records && r1.records.templateCampaignId;
+      if (!templateCampaignId) throw new Error('No se pudo obtener templateCampaignId (paso 1).');
+      // Paso 2: GET /admin/mgm/campaigns/templates/{templateCampaignId} -> config completa
+      var r2 = await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/' + encodeURIComponent(templateCampaignId));
+      var rec = r2.records;
+      if (!rec) throw new Error('No se pudo obtener la configuración completa (paso 2).');
       return { templateCampaignId: templateCampaignId, rec: rec };
     }
 
