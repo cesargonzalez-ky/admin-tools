@@ -122,6 +122,7 @@
       if (!d) return '';
       var parentObj = d.parent || d.parentDepartment || d.departmentParent || null;
       return normalizeText(
+        d.stakeholderDepartmentParentName ||
         d.parentName ||
         d.parentDepartmentName ||
         d.stakeholderParentName ||
@@ -338,7 +339,7 @@
 
       try {
         var r1 = await fetch(
-          'https://api.kymatio.com/v2/admin/stakeholders/companies/' + encodeURIComponent(companyId) + '/people?login=true&email=true',
+          'https://api.kymatio.com/v2/admin/stakeholders/companies/' + encodeURIComponent(companyId) + '/people?stakeholderDepartmentParentName=true&stakeholderDepartmentId=true&avatar=true&email=true&authentication=true&locale=true&timezone=true&phoneNumber=true&environment=true&login=true&tags=true',
           { headers: apiHeaders() }
         );
         var d1 = await r1.json();
@@ -347,7 +348,7 @@
         users = d1.records || [];
 
         var r2 = await fetch(
-          'https://api.kymatio.com/v2/admin/stakeholders/companies/' + encodeURIComponent(companyId) + '/departments',
+          'https://api.kymatio.com/v2/admin/stakeholders/companies/' + encodeURIComponent(companyId) + '/departments?stakeholderDepartmentParentName=true&tags=true',
           { headers: apiHeaders() }
         );
         var d2 = await r2.json();
