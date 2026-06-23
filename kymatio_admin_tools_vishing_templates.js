@@ -83,8 +83,8 @@
     }
     function extractCampaignTypeId(json){ var id=findId(json,['campaignTypeId','typeId','id']); if(!id) throw new Error('No he podido detectar el campaignTypeId en la respuesta del armazón. Revisa consola.'); return id; }
     function nameOf(item){ var d=item && item.name && item.name.name && item.name.name.dictionary; return d ? (d['es-es'] || d[state.defLang] || d[Object.keys(d)[0]] || '') : (item && (item.name || item.templateName || item.campaignType) || '(sin nombre)'); }
-    function typeIdOf(item){ return item && (item.campaignTypeId || item.typeId || item.id || '') || ''; }
-    function templateIdOf(item){ return item && (item.templateId || item.campaignTemplateId || (item.template&&item.template.id) || (item.templates&&item.templates[0]&&item.templates[0].id) || '') || ''; }
+    function typeIdOf(item){ return item && (item.campaignTypeId || item.typeId || '') || ''; }
+    function templateIdOf(item){ return item && (item.templateId || item.campaignTemplateId || item.campaignTypeId || '') || ''; }
     function extractList(json){ var arrays=[]; function add(a){ if(Array.isArray(a)) arrays.push(a); } add(json); if(json){ add(json.records); add(json.records&&json.records.types); add(json.records&&json.records.content); add(json.records&&json.records.data); add(json.types); add(json.content); add(json.data); } var best=[]; arrays.forEach(function(a){ var f=a.filter(function(x){ return x && Number(x.surveyTypeId)===SURVEY_TYPE_ID; }); if(f.length>best.length) best=f; }); return best; }
     function detectCampaignListId(){ try{ var st=document.querySelector('#app').__vue_app__.config.globalProperties.$store.state; var c=(st.Admin&&st.Admin.companySelected)||(st.Controller&&st.Controller.companySelected); return findId(c,['controllerCampaignId','campaignId','campaign_id']) || tools.state.companyId || ''; }catch(e){ return tools.state.companyId || ''; } }
 
@@ -132,16 +132,11 @@
     function setEventDefault(i){ var e=val('kat-vevent'+i); if(!e) return; var d=DEF[e]||DEF.USER_MANAGER; $('kat-vlvl'+i).value=d.level; $('kat-vcond'+i).value=d.condition==null?'null':d.condition; $('kat-vpunt'+i).value=d.puntuation; $('kat-vicon'+i).value=d.icon; $('kat-vcolor'+i).value=d.color; }
 
     async function loadFullTemplate(item) {
-      // Paso 1: obtener templateCampaignId desde controller
-      var typeId = typeIdOf(item);
-      var tplId  = templateIdOf(item);
-      if (!typeId || !tplId) throw new Error('No se pudo obtener typeId o templateId del item.');
-      var r1 = await fetchJson('https://api.kymatio.com/v2/controller/campaigns/' + encodeURIComponent(typeId) + '/templates/' + encodeURIComponent(tplId));
-      var templateCampaignId = r1.records && r1.records.templateCampaignId;
-      if (!templateCampaignId) throw new Error('No se pudo obtener templateCampaignId.');
-      // Paso 2: obtener configuración completa desde admin
-      var r2 = await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/' + encodeURIComponent(templateCampaignId));
-      var rec = r2.records;
+      // item.id es directamente el templateCampaignId
+      var templateCampaignId = item && (item.id || item.templateCampaignId);
+      if (!templateCampaignId) throw new Error('No se pudo obtener templateCampaignId del item.');
+      var r = await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/' + encodeURIComponent(templateCampaignId));
+      var rec = r.records;
       if (!rec) throw new Error('No se pudo obtener la configuración completa.');
       return { templateCampaignId: templateCampaignId, rec: rec };
     }
