@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-06-23-borrador-vishing-02';
+  var VERSION = '2026-06-23-bulk-report-01';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',
@@ -14,6 +14,7 @@
     'kymatio_admin_tools_bulk_resurrection.js',
     'kymatio_admin_tools_bulk_loader.js',
     'kymatio_admin_tools_bulk_delete_users.js',
+    'kymatio_admin_tools_bulk_user_dept_report.js',
     'kymatio_admin_tools_vishing_templates.js'
   ];
 
