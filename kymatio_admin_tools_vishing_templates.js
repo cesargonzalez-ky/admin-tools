@@ -94,8 +94,7 @@
       var cid = detectCampaignListId();
       container.innerHTML = shell() +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:11px;font-weight:700;color:#64748b">PLANTILLAS DE VISHING</span><button id="kat-vnew" style="background:#1e293b;color:white;border:0;padding:7px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">+ Crear nueva</button></div>' +
-        '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#1e40af;font-size:12px"><b>Organización:</b><br>' + h(org()) + '</div>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>' + label('Buscar',false) + '<input id="kat-vsearch" style="'+css()+'" placeholder="Nombre o campaignType"></div><div>' + label('ID campaña para listado (borrador)',false) + '<input id="kat-vlistid" value="'+h(cid)+'" style="'+css()+'"></div></div>' +
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>' + label('Buscar',false) + '<input id="kat-vsearch" style="'+css()+'" placeholder="Nombre o campaignType"></div><div>' + label('ID campaña para listado (borrador)',false) + '<input id="kat-vlistid" value="'+h(cid)+'" style="'+css()+'"></div></div>' +
         '<button id="kat-vload" style="width:100%;background:#0369a1;color:white;border:0;padding:8px;border-radius:6px;font-weight:700;cursor:pointer;margin-bottom:10px">↻ Cargar listado</button>' +
         '<div id="kat-vrows"></div><div style="display:flex;gap:8px;align-items:center"><button id="kat-vprev" style="padding:5px 10px;border:1px solid #e2e8f0;background:white;border-radius:5px">Anterior</button><div id="kat-vpage" style="flex:1;text-align:center;font-size:11px;color:#64748b">Sin cargar</div><button id="kat-vnext" style="padding:5px 10px;border:1px solid #e2e8f0;background:white;border-radius:5px">Siguiente</button></div><div id="kat-vstatus" style="display:none"></div>';
       $('kat-vnew').onclick=function(){ renderForm('create'); };
@@ -198,5 +197,5 @@
     tools.loadCompanyData().then(function(data){ var l=(data.environment&&data.environment.languages)||{}; state.langs=(Array.isArray(l.list)&&l.list.length)?l.list.slice():['es-es']; state.defLang=l.default||state.langs[0]||'es-es'; renderList(); }).catch(function(e){ container.innerHTML='<div style="padding:14px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030">Error: '+h(e.message)+'</div>'; });
   }
 
-  KAT.registerModule({ key:'vishing_templates_draft', label:'BORRADOR - Plantillas de Vishing', icon:'&#9742;', order:75, renderGui:renderGui });
+  KAT.registerModule({ key:'vishing_templates_draft', label:'BORRADOR - Plantillas de Vishing', icon:'&#9742;', order:75, forceGuiOnly:true, hideModeSwitch:true, renderGui:renderGui });
 })();
