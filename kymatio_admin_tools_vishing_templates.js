@@ -131,9 +131,78 @@
     function eventBlock(i){ var d={level:4,condition:null,puntuation:0.4,icon:'write.svg',color:'#FFA500'}; return '<div style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:10px 12px;margin-bottom:8px"><div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:8px">Evento '+i+'</div><div style="display:grid;grid-template-columns:1fr 70px 90px;gap:8px;margin-bottom:8px"><div>'+label('Evento',false)+'<select id="kat-vevent'+i+'" style="'+css()+'">'+eventOptions('')+'</select></div><div>'+label('Nivel',false)+'<input id="kat-vlvl'+i+'" type="number" value="'+d.level+'" style="'+css()+'"></div><div>'+label('Puntuación',false)+'<input id="kat-vpunt'+i+'" type="number" step="0.1" value="'+d.puntuation+'" style="'+css()+'"></div></div><div style="display:grid;grid-template-columns:1fr 1fr 90px;gap:8px;margin-bottom:8px"><div>'+label('Condición',false)+'<input id="kat-vcond'+i+'" value="null" style="'+css()+'"></div><div>'+label('Icono',false)+'<select id="kat-vicon'+i+'" style="'+css()+'">'+iconOptions(d.icon)+'</select></div><div>'+label('Color',false)+'<input id="kat-vcolor'+i+'" type="color" value="'+d.color+'" style="'+css('padding:2px;height:32px')+'"></div></div><div>'+label('Prompt de extracción',false)+'<textarea id="kat-vext'+i+'" rows="4" style="'+css('resize:vertical')+'"></textarea></div></div>'; }
     function setEventDefault(i){ var e=val('kat-vevent'+i); if(!e) return; var d=DEF[e]||DEF.USER_MANAGER; $('kat-vlvl'+i).value=d.level; $('kat-vcond'+i).value=d.condition==null?'null':d.condition; $('kat-vpunt'+i).value=d.puntuation; $('kat-vicon'+i).value=d.icon; $('kat-vcolor'+i).value=d.color; }
 
+    async function loadFullTemplate(item) {
+      // Paso 1: obtener templateCampaignId desde controller
+      var typeId = typeIdOf(item);
+      var tplId  = templateIdOf(item);
+      if (!typeId || !tplId) throw new Error('No se pudo obtener typeId o templateId del item.');
+      var r1 = await fetchJson('https://api.kymatio.com/v2/controller/campaigns/' + encodeURIComponent(typeId) + '/templates/' + encodeURIComponent(tplId));
+      var templateCampaignId = r1.records && r1.records.templateCampaignId;
+      if (!templateCampaignId) throw new Error('No se pudo obtener templateCampaignId.');
+      // Paso 2: obtener configuración completa desde admin
+      var r2 = await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/' + encodeURIComponent(templateCampaignId));
+      var rec = r2.records;
+      if (!rec) throw new Error('No se pudo obtener la configuración completa.');
+      return { templateCampaignId: templateCampaignId, rec: rec };
+    }
+
     function renderForm(mode,item){
       state.dirty = mode === 'edit';
-      var initialName=nameOf(item)||''; var initialCampaign=item&&item.campaignType||''; var initialTypeId=typeIdOf(item); var initialTplId=templateIdOf(item);
+      var initialTypeId=typeIdOf(item); var initialTplId=templateIdOf(item);
+      var initialName=nameOf(item)||''; var initialCampaign=item&&item.campaignType||'';
+
+      if (mode === 'edit') {
+        container.innerHTML = shell() + '<div style="padding:20px;text-align:center;color:#64748b">&#8987; Cargando plantilla...</div>';
+        loadFullTemplate(item).then(function(full) {
+          var rec = full.rec;
+          var cfg = rec.configuration || {};
+          var setup = cfg.setup || {};
+          var mapping = cfg.mapping || {};
+          var agent = setup.agent || {};
+          var timetable = setup.timetable || {};
+          var profiles = agent.profiles || [{}];
+          var p1 = profiles[0] || {};
+          var p2 = profiles[1] || null;
+          var calculus = mapping.calculus || [];
+          var extraction = mapping.extraction || {};
+          var eventsStyle = mapping.eventsStyle || {};
+          var params = mapping.params || {};
+          var locale = (cfg.params && cfg.params.locale) || state.defLang;
+          var templateCampaignId = full.templateCampaignId;
+
+          renderFormHtml(mode, item, {
+            name: initialName, campaign: initialCampaign,
+            typeId: initialTypeId, tplId: initialTplId,
+            templateCampaignId: templateCampaignId,
+            greeting: agent.greeting || '',
+            locale: locale,
+            p1: p1, p2: p2,
+            timetable: timetable,
+            calculus: calculus,
+            extraction: extraction,
+            eventsStyle: eventsStyle,
+            params: params
+          });
+        }).catch(function(e) {
+          container.innerHTML = shell() + '<div style="padding:14px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030">&#10007; Error cargando plantilla: ' + esc(e.message) + '</div>';
+        });
+        return;
+      }
+
+      renderFormHtml(mode, item, {
+        name: initialName, campaign: initialCampaign,
+        typeId: initialTypeId, tplId: initialTplId,
+        templateCampaignId: null,
+        greeting: '', locale: state.defLang,
+        p1: {}, p2: null, timetable: {},
+        calculus: [], extraction: {}, eventsStyle: {}, params: {}
+      });
+    }
+
+    function renderFormHtml(mode, item, d) {
+      var initialName = d.name, initialCampaign = d.campaign;
+      var initialTypeId = d.typeId, initialTplId = d.tplId;
+      var initialTemplateCampaignId = d.templateCampaignId;
       container.innerHTML = shell() + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:11px;font-weight:700;color:#64748b">'+(mode==='create'?'CREAR PLANTILLA':'EDITAR PLANTILLA')+'</span><button id="kat-vback" style="background:0;border:0;color:#64748b;text-decoration:underline;cursor:pointer">← Volver</button></div>' +
         '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#1e40af;font-size:12px"><b>Organización:</b><br>'+h(org())+'</div>' +
         title('1. Identificación') +
@@ -152,6 +221,82 @@
         title('6. Parámetros de la llamada') + '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px">'+paramsHtml()+'</div>' +
         title('7. Eventos de la campaña') + '<div style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:10px 12px;margin-bottom:8px"><b style="font-size:11px;color:#475569">Evento 0 fijo</b><div style="display:grid;grid-template-columns:1fr 70px 90px;gap:8px;margin-top:8px"><input value="CALL_SENT" readonly style="'+css('background:#f8fafc;color:#64748b')+'"><input value="2" readonly style="'+css('background:#f8fafc;color:#64748b')+'"><input value="1" readonly style="'+css('background:#f8fafc;color:#64748b')+'"></div><div style="display:grid;grid-template-columns:1fr 1fr 90px;gap:8px;margin-top:8px"><input value="null" readonly style="'+css('background:#f8fafc;color:#64748b')+'"><select id="kat-vfixedicon" style="'+css()+'">'+iconOptions('sending.svg')+'</select><input id="kat-vfixedcolor" type="color" value="#1BC5BD" style="'+css('padding:2px;height:32px')+'"></div></div>' + eventBlock(1)+eventBlock(2)+eventBlock(3)+eventBlock(4) +
         '<div style="display:flex;gap:8px;margin-top:14px"><button id="kat-vjson" style="flex:1;background:white;border:1px solid #e2e8f0;color:#475569;padding:9px;border-radius:6px;font-weight:700;cursor:pointer">Ver JSON</button><button id="kat-vsave" style="flex:1;background:#1e293b;color:white;border:0;padding:9px;border-radius:6px;font-weight:700;cursor:pointer">✓ Guardar</button></div><div id="kat-vformstatus" style="display:none"></div><pre id="kat-vpreview" style="display:none;background:#0f172a;color:#cbd5e1;border-radius:8px;padding:12px;font-size:11px;white-space:pre-wrap;max-height:360px;overflow:auto;margin-top:10px"></pre>';
+      // Guardar templateCampaignId en campo oculto
+      if (initialTemplateCampaignId) {
+        var hidEl = document.createElement('input');
+        hidEl.type = 'hidden'; hidEl.id = 'kat-vtplcampaignid';
+        hidEl.value = initialTemplateCampaignId;
+        container.appendChild(hidEl);
+      }
+
+      // Rellenar campos si venimos de edición con datos completos
+      if (mode === 'edit' && d.greeting) {
+        var grEl = $('kat-vgreeting'); if (grEl) grEl.value = d.greeting;
+        // Idioma
+        var lEl = $('kat-vlang'); if (lEl) lEl.value = d.locale;
+        // Perfil 1
+        if (d.p1) {
+          var pn1=$('kat-vpname1'); if(pn1) pn1.value = d.p1.person_name||d.p1.personName||'';
+          var pv1=$('kat-vvoice1'); if(pv1) pv1.value = d.p1.person_voice||d.p1.personVoice||'';
+          var vc=$('kat-vcompany');  if(vc)  vc.value  = d.p1.company_name||d.p1.companyName||'';
+          var vd=$('kat-vdept');     if(vd)  vd.value  = d.p1.department_name||d.p1.departmentName||'';
+          var vpi=$('kat-vpersoninfo');    if(vpi)  vpi.value  = d.p1.person_information||d.p1.personInformation||'';
+          var vci=$('kat-vcompanyinfo');   if(vci)  vci.value  = d.p1.company_information||d.p1.companyInformation||'';
+          var vdi=$('kat-vdeptinfo');      if(vdi)  vdi.value  = d.p1.department_information||d.p1.departmentInformation||'';
+        }
+        // Perfil 2
+        if (d.p2) {
+          var pn2=$('kat-vpname2'); if(pn2) pn2.value = d.p2.person_name||d.p2.personName||'';
+          var pv2=$('kat-vvoice2'); if(pv2) pv2.value = d.p2.person_voice||d.p2.personVoice||'';
+        }
+        // Timetable
+        if (d.timetable.days) {
+          DAYS.forEach(function(day) {
+            var cb = $('kat-vday'+day[0]);
+            if (cb) cb.checked = d.timetable.days.indexOf(day[0]) >= 0;
+          });
+        }
+        if (d.timetable.timeRanges && d.timetable.timeRanges[0]) {
+          var t1s=$('kat-vt1s'); var t1e=$('kat-vt1e');
+          if(t1s) t1s.value = d.timetable.timeRanges[0].start||'';
+          if(t1e) t1e.value = d.timetable.timeRanges[0].end||'';
+        }
+        if (d.timetable.timeRanges && d.timetable.timeRanges[1]) {
+          var t2s=$('kat-vt2s'); var t2e=$('kat-vt2e');
+          if(t2s) t2s.value = d.timetable.timeRanges[1].start||'';
+          if(t2e) t2e.value = d.timetable.timeRanges[1].end||'';
+        }
+        if (d.timetable.callInterval) { var ci=$('kat-vinterval'); if(ci) ci.value=d.timetable.callInterval; }
+        if (d.timetable.callLimit)    { var cl=$('kat-vlimit');    if(cl) cl.value=d.timetable.callLimit; }
+        // Params
+        var paramKeys = Object.keys(d.params); var pi=0;
+        paramKeys.forEach(function(k) {
+          var kEl=$('kat-vpkey'+pi); var vEl=$('kat-vpval'+pi);
+          if(kEl) kEl.value=k; if(vEl) vEl.value=d.params[k]; pi++;
+        });
+        // Eventos (calculus sin CALL_SENT)
+        var userEvents = d.calculus.filter(function(c){ return c.event !== 'CALL_SENT'; });
+        userEvents.forEach(function(ev, i) {
+          var n = i+1;
+          var evEl=$('kat-vevent'+n); if(evEl) evEl.value=ev.event;
+          var lvEl=$('kat-vlvl'+n);   if(lvEl) lvEl.value=ev.level||'';
+          var puEl=$('kat-vpunt'+n);  if(puEl) puEl.value=ev.puntuation!=null?ev.puntuation:'';
+          var cdEl=$('kat-vcond'+n);  if(cdEl) cdEl.value=ev.condition==null?'null':ev.condition;
+          var exEl=$('kat-vext'+n);   if(exEl) exEl.value=(d.extraction&&d.extraction[ev.event])||'';
+          var style = d.eventsStyle && d.eventsStyle[ev.event];
+          if (style) {
+            var icEl=$('kat-vicon'+n);  if(icEl)  icEl.value=style.icon||'write.svg';
+            var coEl=$('kat-vcolor'+n); if(coEl) coEl.value=style.color||'#FFA500';
+          }
+        });
+        // CALL_SENT fijo
+        var fixedStyle = d.eventsStyle && d.eventsStyle['CALL_SENT'];
+        if (fixedStyle) {
+          var fi=$('kat-vfixedicon');  if(fi) fi.value=fixedStyle.icon||'sending.svg';
+          var fc=$('kat-vfixedcolor'); if(fc) fc.value=fixedStyle.color||'#1BC5BD';
+        }
+      }
+
       $('kat-vback').onclick=renderList; ['kat-vname','kat-vcat','kat-vlev'].forEach(function(id){ $(id).oninput=function(){ syncCampaign(false); }; $(id).onchange=function(){ syncCampaign(false); }; }); $('kat-vctype').oninput=function(){ state.dirty=true; }; if(mode==='create') syncCampaign(true);
       [1,2,3,4].forEach(function(i){ $('kat-vevent'+i).onchange=function(){ setEventDefault(i); }; });
       $('kat-vjson').onclick=function(){ try{ var f=collect(); var prev={armazon:mode==='create'?skeleton(f):'(no se modifica el armazón en este borrador salvo creación)',contenido:template(Object.assign({},f,{campaignTypeId:f.campaignTypeId||0}))}; $('kat-vpreview').style.display='block'; $('kat-vpreview').textContent=JSON.stringify(prev,null,2); }catch(e){ status($('kat-vformstatus'),'✗ '+h(e.message),'err'); } };
@@ -176,7 +321,10 @@
     function skeleton(f){ var d={}; d[f.locale]=f.name; return { name:{name:{dictionary:d}}, categoryId:f.categoryId, levelId:f.levelId, surveyTypeId:SURVEY_TYPE_ID, campaignType:f.campaignType, stakeholderCompanyId:Number(tools.state.companyId) }; }
     function template(f){ var params={}, events=['CALL_SENT'], calculus=[{event:'CALL_SENT',level:2,condition:null,puntuation:1}], extraction={}, styles={CALL_SENT:{icon:f.fixedIcon,color:f.fixedColor}}; f.params.forEach(function(p){ params[p.key]=p.value; }); f.events.forEach(function(e){ events.push(e.event); calculus.push({event:e.event,level:e.level,condition:e.condition,puntuation:e.puntuation}); extraction[e.event]=e.extraction; styles[e.event]={icon:e.icon,color:e.color}; }); return { campaignType:f.campaignType, campaignTypeId:f.campaignTypeId, stakeholderCompanyId:Number(tools.state.companyId), surveyTypeId:SURVEY_TYPE_ID, templates:[{ name:f.name, params:{locale:f.locale}, configuration:{ agent:{agentId:AGENT_ID,greeting:f.greeting,profiles:f.profiles}, timetable:{days:f.days,timeRanges:f.timeRanges,callInterval:f.callInterval,callLimit:f.callLimit} }, mapping:{events:events,params:params,calculus:calculus,extraction:extraction,eventsStyle:styles} }] }; }
     async function save(mode){
-      var st=$('kat-vformstatus'), f=collect(), tplid=val('kat-vtplid');
+      var st=$('kat-vformstatus'), f=collect();
+      var tplid=val('kat-vtplid');
+      var tplCampaignIdEl=$('kat-vtplcampaignid');
+      var tplCampaignId = tplCampaignIdEl ? tplCampaignIdEl.value : '';
       if(mode==='create'){
         if(!confirm('Se va a crear una plantilla de Vishing en '+org()+'.\n\n¿Quieres continuar?')) return;
         status(st,'⌛ Creando armazón...','info');
@@ -188,8 +336,19 @@
         if(!f.campaignTypeId) throw new Error('No hay campaignTypeId.');
         if(!confirm('Se va a guardar el contenido.\n\nBORRADOR: la modificación del armazón para añadir idiomas aún no está cerrada.\n\n¿Continuar?')) return;
         var payload=template(f);
-        if(tplid){ status(st,'⌛ Actualizando contenido...','info'); await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplid),{method:'PUT',body:JSON.stringify(payload)}); status(st,'✓ Contenido actualizado correctamente.','ok'); }
-        else { status(st,'⌛ Guardando contenido nuevo...','info'); await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates',{method:'POST',body:JSON.stringify(payload)}); status(st,'✓ Contenido creado correctamente. Revisa si el armazón necesita dictionary para este idioma.','ok'); }
+        if (tplCampaignId) {
+          status(st,'⌛ Actualizando contenido...','info');
+          await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplCampaignId),{method:'PUT',body:JSON.stringify(payload)});
+          status(st,'✓ Contenido actualizado correctamente.','ok');
+        } else if (tplid) {
+          status(st,'⌛ Actualizando contenido (por templateId)...','info');
+          await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplid),{method:'PUT',body:JSON.stringify(payload)});
+          status(st,'✓ Contenido actualizado correctamente.','ok');
+        } else {
+          status(st,'⌛ Guardando contenido nuevo...','info');
+          await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates',{method:'POST',body:JSON.stringify(payload)});
+          status(st,'✓ Contenido creado. Revisa si el armazón necesita dictionary para este idioma.','ok');
+        }
       }
     }
 
