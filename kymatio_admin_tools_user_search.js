@@ -166,7 +166,8 @@
                        (p.login || '').toLowerCase() === email;
               });
               return { company: company, user: found || null };
-            }).catch(function() {
+            }).catch(function(e) {
+              log('⚠ Error en ' + company.name + ': ' + e.message);
               return { company: company, user: null };
             });
           }));
@@ -190,7 +191,9 @@
         }
 
       } catch(e) {
+        log('Error inesperado: ' + e.message);
         setStatus(statusEl, '✗ Error: ' + esc(e.message), 'err');
+        showResult(false);
       }
 
       if (searchBtn) { searchBtn.textContent = 'Buscar'; searchBtn.onclick = doSearch; }
