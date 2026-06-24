@@ -432,6 +432,7 @@
     div.appendChild(content);
 
     state.panel = div;
+    document.body.appendChild(div);
 
     renderSectionButtons();
     bindCoreEvents();
