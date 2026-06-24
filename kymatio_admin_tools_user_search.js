@@ -10,12 +10,20 @@
     var $ = tools.$;
 
     container.innerHTML = [
-      '<div style="margin-bottom:14px">',
-      '  <label style="display:block;font-size:11px;font-weight:600;color:#64748b;margin-bottom:5px">EMAIL A BUSCAR</label>',
+      '<div style="margin-bottom:10px">',
+      '  <label style="display:block;font-size:11px;font-weight:600;color:#64748b;margin-bottom:5px">BUSCAR POR EMAIL</label>',
       '  <div style="display:flex;gap:8px">',
       '    <input id="kym-us-email" type="email" placeholder="usuario@empresa.com"',
       '      style="flex:1;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;box-sizing:border-box">',
       '    <button id="kym-us-search" style="background:#1e293b;color:white;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Buscar</button>',
+      '  </div>',
+      '</div>',
+      '<div style="margin-bottom:14px">',
+      '  <label style="display:block;font-size:11px;font-weight:600;color:#64748b;margin-bottom:5px">BUSCAR POR LOGIN</label>',
+      '  <div style="display:flex;gap:8px">',
+      '    <input id="kym-us-login" type="text" placeholder="login del usuario"',
+      '      style="flex:1;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;box-sizing:border-box">',
+      '    <button id="kym-us-search-login" style="background:#334155;color:white;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Buscar</button>',
       '  </div>',
       '</div>',
       '<div id="kym-us-status" style="display:none;margin-bottom:10px"></div>',
@@ -58,16 +66,23 @@
       }
     }
 
-    async function doSearch() {
+    async function doSearch(fieldType) {
       var emailEl = document.getElementById('kym-us-email');
       var statusEl = document.getElementById('kym-us-status');
       var resultEl = document.getElementById('kym-us-result');
       var logEl = document.getElementById('kym-us-log');
 
-      var email = (emailEl.value || '').trim().toLowerCase();
-      if (!email || !email.includes('@')) {
-        setStatus(statusEl, '⚠ Introduce un email válido', 'err');
-        return;
+      var isLoginSearch = fieldType === 'login';
+      var searchVal, email, loginVal;
+      if (isLoginSearch) {
+        var loginEl = document.getElementById('kym-us-login');
+        loginVal = (loginEl && loginEl.value || '').trim().toLowerCase();
+        if (!loginVal) { setStatus(statusEl, '⚠ Introduce un login válido', 'err'); return; }
+        searchVal = loginVal; email = null;
+      } else {
+        email = (emailEl.value || '').trim().toLowerCase();
+        if (!email || !email.includes('@')) { setStatus(statusEl, '⚠ Introduce un email válido', 'err'); return; }
+        searchVal = email; loginVal = null;
       }
 
       // Reset
@@ -77,14 +92,14 @@
       setStatus(statusEl, '⌛ Cargando empresas...', 'info');
 
       var searchBtn = document.getElementById('kym-us-search');
+      var loginSearchBtn = document.getElementById('kym-us-search-login');
       if (searchBtn) {
-        searchBtn.textContent = 'Cancelar';
-        searchBtn.onclick = function() {
-          cancelled = true;
-          setStatus(statusEl, '⊘ Búsqueda cancelada', 'err');
-          searchBtn.textContent = 'Buscar';
-          searchBtn.onclick = doSearch;
-        };
+        searchBtn.textContent = isLoginSearch ? 'Buscar' : 'Cancelar';
+        if (!isLoginSearch) searchBtn.onclick = function() { cancelled = true; setStatus(statusEl, '⊘ Búsqueda cancelada', 'err'); searchBtn.textContent = 'Buscar'; searchBtn.onclick = doSearch; };
+      }
+      if (loginSearchBtn) {
+        loginSearchBtn.textContent = isLoginSearch ? 'Cancelar' : 'Buscar';
+        if (isLoginSearch) loginSearchBtn.onclick = function() { cancelled = true; setStatus(statusEl, '⊘ Búsqueda cancelada', 'err'); loginSearchBtn.textContent = 'Buscar'; loginSearchBtn.onclick = function(){ doSearch('login'); }; };
       }
 
       try {
@@ -97,17 +112,19 @@
         var allCompanies = r.data.records || [];
         log('Empresas cargadas: ' + allCompanies.length);
 
-        // 2. Estimar candidatos por dominio
-        var domain = email.split('@')[1] || '';
-        var domainBase = domain.split('.')[0].toLowerCase();
-        var candidates = allCompanies.filter(function(c) {
-          var n = (c.name || '').toLowerCase();
-          var s = (c.subdomain || '').toLowerCase();
-          return domainBase && (n.includes(domainBase) || s.includes(domainBase));
-        });
-
-        if (candidates.length) {
-          log('Candidatos por dominio "' + domainBase + '": ' + candidates.map(function(c){ return c.name; }).join(', '));
+        // 2. Estimar candidatos por dominio (solo para búsqueda por email)
+        var candidates = [];
+        if (!isLoginSearch && email) {
+          var domain = email.split('@')[1] || '';
+          var domainBase = domain.split('.')[0].toLowerCase();
+          candidates = allCompanies.filter(function(c) {
+            var n = (c.name || '').toLowerCase();
+            var s = (c.subdomain || '').toLowerCase();
+            return domainBase && (n.includes(domainBase) || s.includes(domainBase));
+          });
+          if (candidates.length) {
+            log('Candidatos por dominio "' + domainBase + '": ' + candidates.map(function(c){ return c.name; }).join(', '));
+          }
         }
 
         // 3. Ordenar el resto por peopleCount asc (los pequeños primero)
@@ -142,6 +159,9 @@
             }).then(function(res) {
               var people = res.data.records || [];
               var found = people.find(function(p) {
+                if (isLoginSearch) {
+                  return (p.login || '').toLowerCase() === loginVal;
+                }
                 return (p.email || '').toLowerCase() === email ||
                        (p.login || '').toLowerCase() === email;
               });
@@ -157,13 +177,15 @@
             setStatus(statusEl, '✓ Usuario encontrado', 'ok');
             showResult(true, match.user, match.company);
             if (searchBtn) { searchBtn.textContent = 'Buscar'; searchBtn.onclick = doSearch; }
+      if (loginSearchBtn) { loginSearchBtn.textContent = 'Buscar'; loginSearchBtn.onclick = function(){ doSearch('login'); }; }
+            if (loginSearchBtn) { loginSearchBtn.textContent = 'Buscar'; loginSearchBtn.onclick = function(){ doSearch('login'); }; }
             return;
           }
         }
 
         if (!cancelled) {
-          log('✗ No encontrado en ninguna de las ' + queue.length + ' empresas');
-          setStatus(statusEl, '✗ Usuario no encontrado', 'err');
+          log('✗ No encontrado en ninguna de las ' + checked + ' empresas revisadas');
+          setStatus(statusEl, '✗ Usuario no encontrado en ninguna empresa', 'err');
           showResult(false);
         }
 
@@ -172,11 +194,16 @@
       }
 
       if (searchBtn) { searchBtn.textContent = 'Buscar'; searchBtn.onclick = doSearch; }
+      if (loginSearchBtn) { loginSearchBtn.textContent = 'Buscar'; loginSearchBtn.onclick = function(){ doSearch('login'); }; }
     }
 
     document.getElementById('kym-us-search').onclick = doSearch;
     document.getElementById('kym-us-email').onkeydown = function(e) {
       if (e.key === 'Enter') doSearch();
+    };
+    document.getElementById('kym-us-search-login').onclick = function() { doSearch('login'); };
+    document.getElementById('kym-us-login').onkeydown = function(e) {
+      if (e.key === 'Enter') doSearch('login');
     };
   }
 
