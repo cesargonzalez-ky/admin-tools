@@ -105,18 +105,27 @@
   }
 
   function loadScript(url) {
-    return new Promise(function (resolve) {
-      var s = document.createElement('script');
-      s.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
-      s.onload = function () {
-        resolve({ ok: true, url: url });
-      };
-      s.onerror = function () {
-        console.error('Kymatio Admin Tools: no se pudo cargar modulo', url);
-        resolve({ ok: false, url: url });
-      };
-      document.head.appendChild(s);
-    });
+    var fullUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+    // Usar fetch+eval para evitar bloqueos CSP de Kymatio
+    return fetch(fullUrl)
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      .then(function(code) {
+        try {
+          // eslint-disable-next-line no-new-func
+          (new Function(code))();
+          return { ok: true, url: url };
+        } catch(e) {
+          console.error('KAT: error ejecutando modulo', url, e.message);
+          return { ok: false, url: url, error: e.message };
+        }
+      })
+      .catch(function(e) {
+        console.error('KAT: no se pudo cargar modulo', url, e.message);
+        return { ok: false, url: url, error: e.message };
+      });
   }
 
   var existing = $('kym-admin-panel');
