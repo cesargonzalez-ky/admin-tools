@@ -285,6 +285,14 @@
   }
 
   function createPanel() {
+    // Cargar Tabler Icons si no están ya
+    if (!document.getElementById('kym-tabler-icons')) {
+      var link = document.createElement('link');
+      link.id = 'kym-tabler-icons';
+      link.rel = 'stylesheet';
+      link.href = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css';
+      document.head.appendChild(link);
+    }
     var div = document.createElement('div');
     div.id = 'kym-admin-panel';
     div.style.cssText = 'position:fixed;top:0;right:0;width:calc(96px + 50vw);height:100vh;z-index:2147483647;display:flex;flex-direction:row;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;font-size:13px;color:#1a202c;box-shadow:-4px 0 24px rgba(0,0,0,.25);';
@@ -300,14 +308,14 @@
       b.dataset.kymNav = '1';
       b.style.cssText = 'width:80px;border-radius:8px;display:flex;flex-direction:column;align-items:center;padding:8px 4px 6px;cursor:pointer;gap:4px;' + (active ? 'background:#3b82f6;' : '');
       b.innerHTML = '<i class="ti ' + icon + '" style="font-size:20px;color:' + (active ? 'white' : '#94a3b8') + '" aria-hidden="true"></i>' +
-        '<span style="font-size:10px;color:' + (active ? 'white' : '#94a3b8') + ';text-align:center;line-height:1.2;">' + label + '</span>';
+        '<span style="font-size:12px;font-weight:600;color:' + (active ? 'white' : '#94a3b8') + ';text-align:center;line-height:1.2;">' + label + '</span>';
       return b;
     }
 
     function sidebarGroup(label, bg, items) {
       var g = document.createElement('div');
       g.style.cssText = 'width:100%;background:' + bg + ';border-radius:10px;margin:0 0 6px;padding:8px 8px 6px;display:flex;flex-direction:column;align-items:center;gap:2px;';
-      g.innerHTML = '<p style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.8px;margin:0 0 6px;text-align:center;width:100%;">' + label + '</p>';
+      g.innerHTML = '<p style="font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.8px;margin:0 0 6px;text-align:center;width:100%;">' + label + '</p>';
       items.forEach(function(item) { g.appendChild(item); });
       return g;
     }
@@ -345,13 +353,13 @@
     var collapseBtn = document.createElement('div');
     collapseBtn.id = 'kym-adm-collapse';
     collapseBtn.style.cssText = 'width:80px;border-radius:8px;display:flex;flex-direction:column;align-items:center;padding:8px 4px 6px;cursor:pointer;gap:4px;margin-bottom:4px;';
-    collapseBtn.innerHTML = '<i class="ti ti-layout-sidebar-right-collapse" style="font-size:20px;color:#475569;" aria-hidden="true"></i><span style="font-size:10px;color:#475569;text-align:center;line-height:1.2;">Contraer</span>';
+    collapseBtn.innerHTML = '<i class="ti ti-layout-sidebar-right-collapse" style="font-size:20px;color:white;" aria-hidden="true"></i><span style="font-size:12px;font-weight:700;color:white;text-align:center;line-height:1.2;">Contraer</span>';
     sidebar.appendChild(collapseBtn);
 
     var closeBtn2 = document.createElement('div');
     closeBtn2.id = 'kym-adm-close';
     closeBtn2.style.cssText = 'width:80px;border-radius:8px;display:flex;flex-direction:column;align-items:center;padding:8px 4px 6px;cursor:pointer;gap:4px;margin-bottom:8px;';
-    closeBtn2.innerHTML = '<i class="ti ti-x" style="font-size:20px;color:#475569;" aria-hidden="true"></i><span style="font-size:10px;color:#475569;text-align:center;line-height:1.2;">Cerrar</span>';
+    closeBtn2.innerHTML = '<i class="ti ti-x" style="font-size:20px;color:white;" aria-hidden="true"></i><span style="font-size:12px;font-weight:700;color:white;text-align:center;line-height:1.2;">Cerrar</span>';
     sidebar.appendChild(closeBtn2);
 
     // ── Content panel ─────────────────────────────────────────────────────────
@@ -560,14 +568,16 @@
     var modSwitch = $('kym-adm-mode-switch');
     var btnsRow   = $('kym-adm-btns-row');
 
+    var act = $('kym-adm-action');
+    if (act) act.style.display = 'block';
+
     if (hasGui) {
-      if (modSwitch) modSwitch.style.display = 'block';
+      if (modSwitch) modSwitch.style.display = moduleAllowsJsonToggle(mod) ? 'block' : 'none';
       if (btnsRow)   btnsRow.style.display = 'none';
       renderCurrentGui();
     } else {
       if (modSwitch) modSwitch.style.display = 'none';
       if (btnsRow)   btnsRow.style.display = 'flex';
-      var act = $('kym-adm-action'); if (act) act.style.display = 'block';
     }
   }
 
@@ -599,21 +609,33 @@
     };
 
     // Colapsar / expandir
-    var collapsed = false;
+    var collapsed = localStorage.getItem('kym-panel-collapsed') === '1';
+    function applyCollapse() {
+      var content = $('kym-adm-content');
+      var colBtn = $('kym-adm-collapse');
+      if (collapsed) {
+        if (content) content.style.display = 'none';
+        div.style.width = '96px';
+        div.style.right = '0';
+        if (colBtn) {
+          colBtn.querySelector('i').className = 'ti ti-layout-sidebar-right-expand';
+          colBtn.querySelector('span').textContent = 'Expandir';
+        }
+      } else {
+        if (content) content.style.display = 'flex';
+        div.style.width = 'calc(96px + 50vw)';
+        div.style.right = '0';
+        if (colBtn) {
+          colBtn.querySelector('i').className = 'ti ti-layout-sidebar-right-collapse';
+          colBtn.querySelector('span').textContent = 'Contraer';
+        }
+      }
+      localStorage.setItem('kym-panel-collapsed', collapsed ? '1' : '0');
+    }
+    applyCollapse();
     $('kym-adm-collapse').onclick = function () {
       collapsed = !collapsed;
-      var content = $('kym-adm-content');
-      if (collapsed) {
-        content.style.display = 'none';
-        div.style.width = '96px';
-        $('kym-adm-collapse').querySelector('i').className = 'ti ti-layout-sidebar-right-expand';
-        $('kym-adm-collapse').querySelector('span').textContent = 'Expandir';
-      } else {
-        content.style.display = 'flex';
-        div.style.width = 'calc(96px + 50vw)';
-        $('kym-adm-collapse').querySelector('i').className = 'ti ti-layout-sidebar-right-collapse';
-        $('kym-adm-collapse').querySelector('span').textContent = 'Contraer';
-      }
+      applyCollapse();
     };
 
     $('kym-adm-btn-view').onclick = async function () {
