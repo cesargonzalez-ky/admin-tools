@@ -458,12 +458,17 @@
 
   // Mapeo fijo key -> nav id (independiente de si el módulo está registrado)
   var NAV_MAP = {
-    services:'kym-nav-services', surveyflow:'kym-nav-surveyflow',
-    languages:'kym-nav-languages', phish_dom:'kym-nav-phish-dom',
-    phish_att:'kym-nav-phish-att', phish_land:'kym-nav-phish-land',
-    vishing_templates:'kym-nav-vishing',
-    bulk_loader:'kym-nav-bulk-loader', resurrection:'kym-nav-resurrection',
-    bulk_move:'kym-nav-move', bulk_email:'kym-nav-email'
+    services:             'kym-nav-services',
+    surveyflow:           'kym-nav-surveyflow',
+    languages:            'kym-nav-languages',
+    phish_dom:            'kym-nav-phish-dom',
+    phish_att:            'kym-nav-phish-att',
+    phish_land:           'kym-nav-phish-land',
+    vishing_templates_draft: 'kym-nav-vishing',
+    bulk_loader:          'kym-nav-bulk-loader',
+    bulk_resurrection:    'kym-nav-resurrection',
+    bulk_move_users:      'kym-nav-move',
+    bulk_email_login:     'kym-nav-email'
   };
 
   function renderSectionButtons() {
