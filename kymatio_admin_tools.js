@@ -605,32 +605,31 @@
     };
 
     // Colapsar / expandir
-    var collapsed = localStorage.getItem('kym-panel-collapsed') === '1';
+    state.collapsed = localStorage.getItem('kym-panel-collapsed') === '1';
     function applyCollapse() {
+      var panel = document.getElementById('kym-admin-panel');
       var content = $('kym-adm-content');
       var colBtn = $('kym-adm-collapse');
-      if (collapsed) {
+      if (state.collapsed) {
         if (content) content.style.display = 'none';
-        div.style.width = '96px';
-        div.style.right = '0';
+        if (panel) { panel.style.width = '96px'; panel.style.right = '0'; }
         if (colBtn) {
           colBtn.querySelector('i').className = 'ti ti-layout-sidebar-right-expand';
           colBtn.querySelector('span').textContent = 'Expandir';
         }
       } else {
         if (content) content.style.display = 'flex';
-        div.style.width = 'calc(96px + 50vw)';
-        div.style.right = '0';
+        if (panel) { panel.style.width = 'calc(96px + 50vw)'; panel.style.right = '0'; }
         if (colBtn) {
           colBtn.querySelector('i').className = 'ti ti-layout-sidebar-right-collapse';
           colBtn.querySelector('span').textContent = 'Contraer';
         }
       }
-      localStorage.setItem('kym-panel-collapsed', collapsed ? '1' : '0');
+      localStorage.setItem('kym-panel-collapsed', state.collapsed ? '1' : '0');
     }
     applyCollapse();
     $('kym-adm-collapse').onclick = function () {
-      collapsed = !collapsed;
+      state.collapsed = !state.collapsed;
       applyCollapse();
     };
 
