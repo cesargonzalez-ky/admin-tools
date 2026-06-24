@@ -106,16 +106,17 @@
 
   function loadScript(url) {
     var fullUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
-    // Usar fetch+eval para evitar bloqueos CSP de Kymatio
     return fetch(fullUrl)
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.text();
       })
-      .then(function(code) {
+      .then(function(moduleCode) {
         try {
-          // eslint-disable-next-line no-new-func
-          (new Function(code))();
+          // eval en el scope global para que window.KymatioAdminTools sea accesible
+          var script = document.createElement('script');
+          script.textContent = moduleCode;
+          document.head.appendChild(script);
           return { ok: true, url: url };
         } catch(e) {
           console.error('KAT: error ejecutando modulo', url, e.message);
@@ -536,6 +537,20 @@
   function selectSection(key) {
     state.currentSection = key;
     state.companyData = null;
+    // Expandir automáticamente si está contraído
+    if (state.collapsed) {
+      state.collapsed = false;
+      var panel = document.getElementById('kym-admin-panel');
+      var content = $('kym-adm-content');
+      var colBtn = $('kym-adm-collapse');
+      if (content) content.style.display = 'flex';
+      if (panel) panel.style.width = 'calc(96px + 50vw)';
+      if (colBtn) {
+        colBtn.querySelector('i').className = 'ti ti-layout-sidebar-right-collapse';
+        colBtn.querySelector('span').textContent = 'Contraer';
+      }
+      localStorage.setItem('kym-panel-collapsed', '0');
+    }
     updateTabs();
 
     var mod = getCurrentModule();
