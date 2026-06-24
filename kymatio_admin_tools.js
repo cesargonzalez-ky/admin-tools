@@ -15,6 +15,7 @@
     'kymatio_admin_tools_bulk_loader.js',
     'kymatio_admin_tools_bulk_delete_users.js',
     'kymatio_admin_tools_bulk_user_dept_report.js',
+    'kymatio_admin_tools_user_search.js',
     'kymatio_admin_tools_vishing_templates.js'
   ];
 
@@ -354,6 +355,7 @@
       sidebarBtn('kym-nav-resurrection',     'ti-refresh-alert',      'Resurrección',   false),
       sidebarBtn('kym-nav-move',             'ti-arrows-transfer-up', 'Mover dptos.',   false),
       sidebarBtn('kym-nav-email',            'ti-at',                 'Email/Login',    false),
+      sidebarBtn('kym-nav-user-search',     'ti-search',             'Buscar usuario', false),
     ];
     sidebar.appendChild(sidebarGroup('Masivo', '#334155', bulkItems));
 
@@ -468,7 +470,8 @@
     bulk_loader:          'kym-nav-bulk-loader',
     bulk_resurrection:    'kym-nav-resurrection',
     bulk_move_users:      'kym-nav-move',
-    bulk_email_login:     'kym-nav-email'
+    bulk_email_login:     'kym-nav-email',
+    user_search:          'kym-nav-user-search'
   };
 
   function renderSectionButtons() {
