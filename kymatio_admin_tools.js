@@ -446,37 +446,33 @@
     bindCoreEvents();
   }
 
+  // Mapeo fijo key -> nav id (independiente de si el módulo está registrado)
+  var NAV_MAP = {
+    services:'kym-nav-services', surveyflow:'kym-nav-surveyflow',
+    languages:'kym-nav-languages', phish_dom:'kym-nav-phish-dom',
+    phish_att:'kym-nav-phish-att', phish_land:'kym-nav-phish-land',
+    vishing_templates:'kym-nav-vishing',
+    bulk_loader:'kym-nav-bulk-loader', resurrection:'kym-nav-resurrection',
+    bulk_move:'kym-nav-move', bulk_email:'kym-nav-email'
+  };
+
   function renderSectionButtons() {
     if (!state.modules.length) registerBuiltinModules();
+    // Asignar onclick a todos los botones de la sidebar de forma directa
+    bindSidebarButtons();
+  }
 
-    // Mapeo key -> nav id
-    var navMap = {
-      services:'kym-nav-services', surveyflow:'kym-nav-surveyflow',
-      languages:'kym-nav-languages', phish_dom:'kym-nav-phish-dom',
-      phish_att:'kym-nav-phish-att', phish_land:'kym-nav-phish-land',
-      vishing_templates:'kym-nav-vishing',
-      bulk_loader:'kym-nav-bulk-loader', resurrection:'kym-nav-resurrection',
-      bulk_move:'kym-nav-move', bulk_email:'kym-nav-email'
-    };
-
-    // Registrar onclick en cada botón de la sidebar
-    state.modules.forEach(function(mod) {
-      var navId = navMap[mod.key];
-      var btn = navId ? document.getElementById(navId) : null;
+  function bindSidebarButtons() {
+    Object.keys(NAV_MAP).forEach(function(key) {
+      var navId = NAV_MAP[key];
+      var btn = document.getElementById(navId);
       if (!btn) return;
-      btn.onclick = function() { selectSection(mod.key); };
+      btn.onclick = function() { selectSection(key); };
     });
   }
 
   function updateTabs() {
-    var navMap = {
-      services:'kym-nav-services', surveyflow:'kym-nav-surveyflow',
-      languages:'kym-nav-languages', phish_dom:'kym-nav-phish-dom',
-      phish_att:'kym-nav-phish-att', phish_land:'kym-nav-phish-land',
-      vishing_templates:'kym-nav-vishing',
-      bulk_loader:'kym-nav-bulk-loader', resurrection:'kym-nav-resurrection',
-      bulk_move:'kym-nav-move', bulk_email:'kym-nav-email'
-    };
+    var navMap = NAV_MAP;
     // Reset todos
     Object.values(navMap).forEach(function(id) {
       var el = document.getElementById(id); if (!el) return;
