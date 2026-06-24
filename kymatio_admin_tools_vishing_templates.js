@@ -83,7 +83,7 @@
     }
     function extractCampaignTypeId(json){ var id=findId(json,['campaignTypeId','typeId','id']); if(!id) throw new Error('No he podido detectar el campaignTypeId en la respuesta del armazón. Revisa consola.'); return id; }
     function nameOf(item){ var d=item && item.name && item.name.name && item.name.name.dictionary; return d ? (d['es-es'] || d[state.defLang] || d[Object.keys(d)[0]] || '') : (item && (item.name || item.templateName || item.campaignType) || '(sin nombre)'); }
-    function typeIdOf(item){ return item && (item.campaignTypeId || item.typeId || '') || ''; }
+    function typeIdOf(item){ return item && (item.common && item.common.campaignTypeId || item.campaignTypeId || item.typeId || '') || ''; }
     function templateIdOf(item){ return item && (item.templateId || item.campaignTemplateId || item.campaignTypeId || '') || ''; }
     function extractList(json){ var arrays=[]; function add(a){ if(Array.isArray(a)) arrays.push(a); } add(json); if(json){ add(json.records); add(json.records&&json.records.types); add(json.records&&json.records.content); add(json.records&&json.records.data); add(json.types); add(json.content); add(json.data); } var best=[]; arrays.forEach(function(a){ var f=a.filter(function(x){ return x && Number(x.surveyTypeId)===SURVEY_TYPE_ID; }); if(f.length>best.length) best=f; }); return best; }
     function detectCampaignListId(){ try{ var st=document.querySelector('#app').__vue_app__.config.globalProperties.$store.state; var c=(st.Admin&&st.Admin.companySelected)||(st.Controller&&st.Controller.companySelected); return findId(c,['controllerCampaignId','campaignId','campaign_id']) || tools.state.companyId || ''; }catch(e){ return tools.state.companyId || ''; } }
@@ -108,8 +108,16 @@
       var st=$('kat-vstatus');
       try{
         status(st,'⌛ Cargando plantillas...','info');
-        var json=await fetchJson('https://api.kymatio.com/v2/controller/campaigns/'+encodeURIComponent(val('kat-vlistid'))+'/types');
-        state.list=extractList(json); state.page=0; state.listId=val('kat-vlistid');
+        var cid = tools.state.companyId || tools.state.cid || val('kat-vlistid');
+        state.cid = cid;
+        // Nuevo endpoint: /campaigns/templates?companyId={cid}
+        var json = await fetchJson(
+          'https://api.kymatio.com/v2/campaigns/templates?companyId=' + encodeURIComponent(cid)
+        );
+        var all = Array.isArray(json.records) ? json.records : [];
+        // Filtrar solo vishing (surveyTypeId=10)
+        state.list = all.filter(function(r){ return r.common && r.common.surveyTypeId === SURVEY_TYPE_ID; });
+        state.page = 0;
         status(st,'✓ Plantillas cargadas: '+state.list.length,'ok');
         renderRows();
       }catch(e){ status(st,'✗ '+h(e.message),'err'); }
@@ -117,11 +125,20 @@
     function renderRows(){
       var box=$('kat-vrows'); if(!box) return;
       var q=String(val('kat-vsearch')).toLowerCase();
-      var data=state.list.filter(function(it){ return !q || (nameOf(it)+' '+(it.campaignType||'')+' '+typeIdOf(it)).toLowerCase().indexOf(q)>=0; });
+      var activeCidStr = String(state.cid||'');
+      var data=state.list.filter(function(it){
+        var matchSearch = !q || (nameOf(it)+' '+(it.campaignType||'')+' '+typeIdOf(it)).toLowerCase().indexOf(q)>=0;
+        var matchCid = !activeCidStr || !it.stakeholderCompanyId || String(it.stakeholderCompanyId)===activeCidStr;
+        return matchSearch && matchCid;
+      });
       var max=Math.max(0,Math.ceil(data.length/5)-1); if(state.page<0) state.page=0; if(state.page>max) state.page=max;
       var rows=data.slice(state.page*5,state.page*5+5); box.innerHTML='';
       if(!rows.length) box.innerHTML='<div style="padding:16px;text-align:center;color:#94a3b8;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;margin-bottom:10px">No hay plantillas para mostrar.</div>';
-      rows.forEach(function(it){ var row=document.createElement('div'); row.style.cssText='border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:10px 12px;margin-bottom:8px'; row.innerHTML='<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h(nameOf(it))+'</div><div style="font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h(it.campaignType||'')+'</div><div style="font-size:10px;color:#94a3b8">campaignTypeId: '+h(typeIdOf(it)||'?')+'</div></div><button class="edit" style="background:#0369a1;color:white;border:0;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Editar</button></div>'; row.querySelector('.edit').onclick=function(){ renderForm('edit',it); }; box.appendChild(row); });
+      rows.forEach(function(it){ var row=document.createElement('div'); row.style.cssText='border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:10px 12px;margin-bottom:8px'; var itName = it.name || (it.common && it.common.campaignTypeId) || '?';
+        var itCtype = it.common && it.common.campaignTypeId ? 'campaignTypeId: '+it.common.campaignTypeId : '';
+        row.innerHTML='<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h(itName)+'</div><div style="font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h(itCtype)+'</div><div class="kym-langs" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px"></div></div><button class="edit" style="background:#0369a1;color:white;border:0;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Editar</button></div>'; var localesHtml = (it.locales||[]).map(function(l){ return '<span style="background:#eff6ff;color:#1e40af;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600">'+h(l)+'</span>'; }).join(' ');
+        row.querySelector('.kym-langs').innerHTML = localesHtml;
+        row.querySelector('.edit').onclick=function(){ renderForm('edit',it); }; box.appendChild(row); });
       if($('kat-vpage')) $('kat-vpage').textContent='Página '+(state.page+1)+' de '+(max+1)+' · '+data.length+' plantillas';
       if($('kat-vprev')) $('kat-vprev').disabled=state.page<=0; if($('kat-vnext')) $('kat-vnext').disabled=state.page>=max;
     }
@@ -132,19 +149,40 @@
     function setEventDefault(i){ var e=val('kat-vevent'+i); if(!e) return; var d=DEF[e]||DEF.USER_MANAGER; $('kat-vlvl'+i).value=d.level; $('kat-vcond'+i).value=d.condition==null?'null':d.condition; $('kat-vpunt'+i).value=d.puntuation; $('kat-vicon'+i).value=d.icon; $('kat-vcolor'+i).value=d.color; }
 
     async function loadFullTemplate(item) {
-      // Paso 1: item tiene campaignTypeId (=454), necesitamos templateCampaignId (=980453)
-      // GET /controller/campaigns/{listId}/templates/{campaignTypeId} -> templateCampaignId
-      var listId  = val('kat-vlistid') || state.listId;
-      var typeId  = item && (item.campaignTypeId || item.typeId || item.id);
-      if (!listId || !typeId) throw new Error('No se pudo obtener listId o campaignTypeId del item.');
-      var r1 = await fetchJson('https://api.kymatio.com/v2/controller/campaigns/' + encodeURIComponent(listId) + '/templates/' + encodeURIComponent(typeId));
-      var templateCampaignId = r1.records && r1.records.templateCampaignId;
-      if (!templateCampaignId) throw new Error('No se pudo obtener templateCampaignId (paso 1).');
-      // Paso 2: GET /admin/mgm/campaigns/templates/{templateCampaignId} -> config completa
-      var r2 = await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/' + encodeURIComponent(templateCampaignId));
-      var rec = r2.records;
-      if (!rec) throw new Error('No se pudo obtener la configuración completa (paso 2).');
-      return { templateCampaignId: templateCampaignId, rec: rec };
+      // item viene de /campaigns/templates — tiene id, locales[], common.campaignTypeId
+      var templateId = item.id || item.templateId;
+      var cid = state.cid || tools.state.companyId;
+      var locales = item.locales || ['es-es'];
+      var campaignTypeId = item.common && item.common.campaignTypeId;
+      var listId = cid; // listId = companyId para el endpoint controller
+
+      if (!templateId || !campaignTypeId) throw new Error('No se pudo obtener templateId o campaignTypeId del item.');
+
+      // Paso 1: obtener templateCampaignId desde el endpoint de detalle
+      var detailJson = await fetchJson(
+        'https://api.kymatio.com/v2/campaigns/templates/' + encodeURIComponent(templateId) + '?companyId=' + encodeURIComponent(cid)
+      );
+      var detail = detailJson.records || detailJson;
+      var templateCampaignId = detail.templateCampaignId || detail.id || templateId;
+
+      // Paso 2: cargar el contenido de cada idioma via controller
+      var templates = await Promise.all(locales.map(function(locale) {
+        return fetchJson(
+          'https://api.kymatio.com/v2/controller/campaigns/' + encodeURIComponent(listId) +
+          '/templates/' + encodeURIComponent(campaignTypeId) + '?locale=' + encodeURIComponent(locale)
+        ).then(function(r) {
+          var rec = r.records || {};
+          return {
+            locale: locale,
+            templateCampaignId: templateCampaignId,
+            rec: rec
+          };
+        }).catch(function() {
+          return { locale: locale, templateCampaignId: templateCampaignId, rec: {} };
+        });
+      }));
+
+      return templates; // array de { locale, templateCampaignId, rec }
     }
 
     function renderForm(mode,item){
@@ -154,38 +192,14 @@
 
       if (mode === 'edit') {
         container.innerHTML = shell() + '<div style="padding:20px;text-align:center;color:#64748b">&#8987; Cargando plantilla...</div>';
-        loadFullTemplate(item).then(function(full) {
-          var rec = full.rec;
-          var cfg = rec.configuration || {};
-          var setup = cfg.setup || {};
-          var mapping = cfg.mapping || {};
-          var agent = setup.agent || {};
-          var timetable = setup.timetable || {};
-          var profiles = agent.profiles || [{}];
-          var p1 = profiles[0] || {};
-          var p2 = profiles[1] || null;
-          var calculus = mapping.calculus || [];
-          var extraction = mapping.extraction || {};
-          var eventsStyle = mapping.eventsStyle || {};
-          var params = mapping.params || {};
-          var locale = (cfg.params && cfg.params.locale) || state.defLang;
-          var templateCampaignId = full.templateCampaignId;
-
-          renderFormHtml(mode, item, {
-            name: initialName, campaign: initialCampaign,
-            typeId: initialTypeId, tplId: initialTplId,
-            templateCampaignId: templateCampaignId,
-            greeting: agent.greeting || '',
-            locale: locale,
-            p1: p1, p2: p2,
-            timetable: timetable,
-            calculus: calculus,
-            extraction: extraction,
-            eventsStyle: eventsStyle,
-            params: params
-          });
+        loadFullTemplate(item).then(function(templates) {
+          // templates = array de { locale, templateCampaignId, rec }
+          state.editTemplates = templates; // guardar para save multiidioma
+          state.activeLocale = templates[0] && templates[0].locale;
+          renderMultiLangTabs(item, templates);
         }).catch(function(e) {
-          container.innerHTML = shell() + '<div style="padding:14px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030">&#10007; Error cargando plantilla: ' + esc(e.message) + '</div>';
+          container.innerHTML = shell() + '<div style="padding:14px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030">&#10007; Error cargando plantilla: ' + h(e.message) + '</div>';
+          document.getElementById('kat-vback') && (document.getElementById('kat-vback').onclick = renderList);
         });
         return;
       }
@@ -200,11 +214,12 @@
       });
     }
 
-    function renderFormHtml(mode, item, d) {
+    function renderFormHtml(mode, item, d, targetEl) {
       var initialName = d.name, initialCampaign = d.campaign;
       var initialTypeId = d.typeId, initialTplId = d.tplId;
       var initialTemplateCampaignId = d.templateCampaignId;
-      container.innerHTML = shell() + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:11px;font-weight:700;color:#64748b">'+(mode==='create'?'CREAR PLANTILLA':'EDITAR PLANTILLA')+'</span><button id="kat-vback" style="background:0;border:0;color:#64748b;text-decoration:underline;cursor:pointer">← Volver</button></div>' +
+      if (targetEl) {
+        targetEl.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:11px;font-weight:700;color:#64748b">'+(mode==='create'?'CREAR PLANTILLA':'EDITAR PLANTILLA')+'</span><button id="kat-vback" style="background:0;border:0;color:#64748b;text-decoration:underline;cursor:pointer">← Volver</button></div>' +
         '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#1e40af;font-size:12px"><b>Organización:</b><br>'+h(org())+'</div>' +
         title('1. Identificación') +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Nombre de la plantilla',true)+'<input id="kat-vname" value="'+h(initialName)+'" style="'+css()+'"></div><div>'+label('Idioma',true)+'<select id="kat-vlang" style="'+css()+'">'+langOptions(state.defLang)+'</select></div></div>' +
@@ -222,6 +237,26 @@
         title('6. Parámetros de la llamada') + '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px">'+paramsHtml()+'</div>' +
         title('7. Eventos de la campaña') + '<div style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:10px 12px;margin-bottom:8px"><b style="font-size:11px;color:#475569">Evento 0 fijo</b><div style="display:grid;grid-template-columns:1fr 70px 90px;gap:8px;margin-top:8px"><input value="CALL_SENT" readonly style="'+css('background:#f8fafc;color:#64748b')+'"><input value="2" readonly style="'+css('background:#f8fafc;color:#64748b')+'"><input value="1" readonly style="'+css('background:#f8fafc;color:#64748b')+'"></div><div style="display:grid;grid-template-columns:1fr 1fr 90px;gap:8px;margin-top:8px"><input value="null" readonly style="'+css('background:#f8fafc;color:#64748b')+'"><select id="kat-vfixedicon" style="'+css()+'">'+iconOptions('sending.svg')+'</select><input id="kat-vfixedcolor" type="color" value="#1BC5BD" style="'+css('padding:2px;height:32px')+'"></div></div>' + eventBlock(1)+eventBlock(2)+eventBlock(3)+eventBlock(4) +
         '<div style="display:flex;gap:8px;margin-top:14px"><button id="kat-vjson" style="flex:1;background:white;border:1px solid #e2e8f0;color:#475569;padding:9px;border-radius:6px;font-weight:700;cursor:pointer">Ver JSON</button><button id="kat-vsave" style="flex:1;background:#1e293b;color:white;border:0;padding:9px;border-radius:6px;font-weight:700;cursor:pointer">✓ Guardar</button></div><div id="kat-vformstatus" style="display:none"></div><pre id="kat-vpreview" style="display:none;background:#0f172a;color:#cbd5e1;border-radius:8px;padding:12px;font-size:11px;white-space:pre-wrap;max-height:360px;overflow:auto;margin-top:10px"></pre>';
+      } else {
+        container.innerHTML = shell() + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:11px;font-weight:700;color:#64748b">'+(mode==='create'?'CREAR PLANTILLA':'EDITAR PLANTILLA')+'</span><button id="kat-vback" style="background:0;border:0;color:#64748b;text-decoration:underline;cursor:pointer">← Volver</button></div>' +
+        '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#1e40af;font-size:12px"><b>Organización:</b><br>'+h(org())+'</div>' +
+        title('1. Identificación') +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Nombre de la plantilla',true)+'<input id="kat-vname" value="'+h(initialName)+'" style="'+css()+'"></div><div>'+label('Idioma',true)+'<select id="kat-vlang" style="'+css()+'">'+langOptions(state.defLang)+'</select></div></div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Categoría',true)+'<select id="kat-vcat" style="'+css()+'">'+catOptions(5)+'</select></div><div>'+label('Nivel',true)+'<select id="kat-vlev" style="'+css()+'">'+lvlOptions(3)+'</select></div></div>' +
+        '<div style="margin-bottom:8px">'+label('Tipo de campaña',true)+'<input id="kat-vctype" value="'+h(initialCampaign)+'" style="'+css()+'"></div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('campaignTypeId',false)+'<input id="kat-vtypeid" value="'+h(initialTypeId)+'" readonly style="'+css('background:#f8fafc;color:#64748b')+'"></div><div>'+label('templateId',false)+'<input id="kat-vtplid" value="'+h(initialTplId)+'" readonly style="'+css('background:#f8fafc;color:#64748b')+'"></div></div>' +
+        '<div>'+label('Agente',false)+'<input value="151" readonly style="'+css('background:#f8fafc;color:#64748b')+'"></div>' +
+        title('2. Configuración del agente') + '<div>'+label('Saludo inicial',true)+'<textarea id="kat-vgreeting" rows="4" style="'+css('resize:vertical')+'"></textarea></div>' +
+        title('3. Perfiles de voz') +
+        '<div style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:10px 12px;margin-bottom:8px"><b style="font-size:11px;color:#475569">Perfil 1 obligatorio</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><div>'+label('Nombre del personaje',true)+'<input id="kat-vpname1" style="'+css()+'"></div><div>'+label('Voz del personaje',true)+'<select id="kat-vvoice1" style="'+css()+'">'+voiceOptions('')+'</select></div></div></div>' +
+        '<div style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:10px 12px;margin-bottom:8px"><b style="font-size:11px;color:#475569">Perfil 2 opcional</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><div>'+label('Nombre del personaje',false)+'<input id="kat-vpname2" style="'+css()+'"></div><div>'+label('Voz del personaje',false)+'<select id="kat-vvoice2" style="'+css()+'">'+voiceOptions('')+'</select></div></div></div>' +
+        title('4. Contexto de la llamada') +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Empresa ficticia',true)+'<input id="kat-vcompany" style="'+css()+'"></div><div>'+label('Departamento ficticio',true)+'<input id="kat-vdept" style="'+css()+'"></div></div><div style="margin-bottom:8px">'+label('Información del personaje',true)+'<input id="kat-vpersoninfo" style="'+css()+'"></div><div style="margin-bottom:8px">'+label('Información de la empresa',true)+'<textarea id="kat-vcompanyinfo" rows="3" style="'+css('resize:vertical')+'"></textarea></div><div>'+label('Información del departamento',true)+'<textarea id="kat-vdeptinfo" rows="3" style="'+css('resize:vertical')+'"></textarea></div>' +
+        title('5. Programación de llamadas - configuración avanzada') + '<details open style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:10px 12px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:#475569">Horario y límites</summary><div style="margin-top:10px">'+label('Días',true)+daysHtml()+'</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><div>'+label('Franja 1 inicio',true)+'<input id="kat-vt1s" type="time" value="09:00" style="'+css()+'"></div><div>'+label('Franja 1 fin',true)+'<input id="kat-vt1e" type="time" value="14:00" style="'+css()+'"></div><div>'+label('Franja 2 inicio',false)+'<input id="kat-vt2s" type="time" value="16:00" style="'+css()+'"></div><div>'+label('Franja 2 fin',false)+'<input id="kat-vt2e" type="time" value="18:00" style="'+css()+'"></div><div>'+label('Intervalo entre llamadas',true)+'<input id="kat-vinterval" type="number" value="2" min="1" style="'+css()+'"></div><div>'+label('Límite de llamadas',true)+'<input id="kat-vlimit" type="number" value="2" min="1" style="'+css()+'"></div></div></details>' +
+        title('6. Parámetros de la llamada') + '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px">'+paramsHtml()+'</div>' +
+        title('7. Eventos de la campaña') + '<div style="border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:10px 12px;margin-bottom:8px"><b style="font-size:11px;color:#475569">Evento 0 fijo</b><div style="display:grid;grid-template-columns:1fr 70px 90px;gap:8px;margin-top:8px"><input value="CALL_SENT" readonly style="'+css('background:#f8fafc;color:#64748b')+'"><input value="2" readonly style="'+css('background:#f8fafc;color:#64748b')+'"><input value="1" readonly style="'+css('background:#f8fafc;color:#64748b')+'"></div><div style="display:grid;grid-template-columns:1fr 1fr 90px;gap:8px;margin-top:8px"><input value="null" readonly style="'+css('background:#f8fafc;color:#64748b')+'"><select id="kat-vfixedicon" style="'+css()+'">'+iconOptions('sending.svg')+'</select><input id="kat-vfixedcolor" type="color" value="#1BC5BD" style="'+css('padding:2px;height:32px')+'"></div></div>' + eventBlock(1)+eventBlock(2)+eventBlock(3)+eventBlock(4) +
+        '<div style="display:flex;gap:8px;margin-top:14px"><button id="kat-vjson" style="flex:1;background:white;border:1px solid #e2e8f0;color:#475569;padding:9px;border-radius:6px;font-weight:700;cursor:pointer">Ver JSON</button><button id="kat-vsave" style="flex:1;background:#1e293b;color:white;border:0;padding:9px;border-radius:6px;font-weight:700;cursor:pointer">✓ Guardar</button></div><div id="kat-vformstatus" style="display:none"></div><pre id="kat-vpreview" style="display:none;background:#0f172a;color:#cbd5e1;border-radius:8px;padding:12px;font-size:11px;white-space:pre-wrap;max-height:360px;overflow:auto;margin-top:10px"></pre>';
+      }
       // Guardar templateCampaignId en campo oculto
       if (initialTemplateCampaignId) {
         var hidEl = document.createElement('input');
@@ -335,20 +370,71 @@
         status(st,'✓ Plantilla creada correctamente. campaignTypeId: '+h(f.campaignTypeId),'ok');
       } else {
         if(!f.campaignTypeId) throw new Error('No hay campaignTypeId.');
-        if(!confirm('Se va a guardar el contenido.\n\nBORRADOR: la modificación del armazón para añadir idiomas aún no está cerrada.\n\n¿Continuar?')) return;
-        var payload=template(f);
-        if (tplCampaignId) {
-          status(st,'⌛ Actualizando contenido...','info');
-          await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplCampaignId),{method:'PUT',body:JSON.stringify(payload)});
-          status(st,'✓ Contenido actualizado correctamente.','ok');
-        } else if (tplid) {
-          status(st,'⌛ Actualizando contenido (por templateId)...','info');
-          await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplid),{method:'PUT',body:JSON.stringify(payload)});
-          status(st,'✓ Contenido actualizado correctamente.','ok');
+        if(!confirm('Se va a guardar la plantilla en todos los idiomas.\n\n¿Continuar?')) return;
+
+        // Construir el payload del idioma activo con el formulario actual
+        var currentPayload = template(f);
+        var currentLocale = state.activeLocale || f.locale;
+
+        // Combinar con los demás idiomas guardados en state.editTemplates
+        var allTemplates = [];
+        if (state.editTemplates && state.editTemplates.length > 0) {
+          state.editTemplates.forEach(function(t) {
+            if (t.locale === currentLocale) {
+              // Usar el payload del formulario actual para este idioma
+              if (currentPayload.templates && currentPayload.templates.length > 0) {
+                allTemplates.push(currentPayload.templates[0]);
+              }
+            } else if (t.rec && t.rec.agent) {
+              // Reconstruir payload para los otros idiomas desde rec
+              var rec = t.rec;
+              var agent = rec.agent || {};
+              var profiles = agent.profiles || [];
+              var evStyles = rec.eventsStyle || {};
+              var events = (rec.events || []).filter(function(e){ return e !== 'CALL_SENT'; });
+              var tplEntry = {
+                name: '', params: { locale: t.locale },
+                configuration: {
+                  agent: {
+                    agentId: agent.agentId || AGENT_ID,
+                    greeting: agent.greeting || '',
+                    profiles: profiles
+                  },
+                  timetable: rec.timetable || {},
+                  mapping: rec.mapping || {
+                    events: ['CALL_SENT'].concat(events),
+                    params: {},
+                    calculus: events.map(function(ev) {
+                      return { event: ev, level: DEF[ev]&&DEF[ev].level||3, condition: null, puntuation: DEF[ev]&&DEF[ev].puntuation!=null?DEF[ev].puntuation:0 };
+                    }),
+                    extraction: {},
+                    eventsStyle: evStyles
+                  }
+                }
+              };
+              allTemplates.push(tplEntry);
+            }
+          });
+        } else if (currentPayload.templates) {
+          allTemplates = currentPayload.templates;
+        }
+
+        var finalPayload = {
+          campaignType: f.campaignType || '',
+          campaignTypeId: f.campaignTypeId,
+          stakeholderCompanyId: String(tools.state.companyId || ''),
+          templates: allTemplates
+        };
+
+        var tcid = tplCampaignId || tplid;
+        if (tcid) {
+          status(st,'⌛ Actualizando plantilla (' + allTemplates.length + ' idiomas)...','info');
+          await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tcid),{method:'PUT',body:JSON.stringify(finalPayload)});
+          status(st,'✓ Plantilla actualizada correctamente (' + allTemplates.length + ' idiomas).','ok');
         } else {
-          status(st,'⌛ Guardando contenido nuevo...','info');
-          await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates',{method:'POST',body:JSON.stringify(payload)});
-          status(st,'✓ Contenido creado. Revisa si el armazón necesita dictionary para este idioma.','ok');
+          status(st,'⌛ Creando plantilla (' + allTemplates.length + ' idiomas)...','info');
+          await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates',{method:'POST',body:JSON.stringify(finalPayload)});
+          status(st,'✓ Plantilla creada correctamente.','ok');
         }
       }
     }
@@ -356,6 +442,93 @@
     container.innerHTML='<div style="padding:14px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#64748b">Cargando editor BORRADOR...</div>';
     tools.loadCompanyData().then(function(data){ var l=(data.environment&&data.environment.languages)||{}; state.langs=(Array.isArray(l.list)&&l.list.length)?l.list.slice():['es-es']; state.defLang=l.default||state.langs[0]||'es-es'; renderList(); }).catch(function(e){ container.innerHTML='<div style="padding:14px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030">Error: '+h(e.message)+'</div>'; });
   }
+
+    function renderMultiLangTabs(item, templates) {
+      var activeLoc = state.activeLocale || (templates[0] && templates[0].locale);
+
+      function buildTabs() {
+        var bar = '<div style="display:flex;gap:4px;flex-wrap:wrap;border-bottom:2px solid #e2e8f0;padding-bottom:0;margin-bottom:16px">';
+        templates.forEach(function(t) {
+          var active = t.locale === activeLoc;
+          bar += '<button class="kat-vtab" data-locale="' + h(t.locale) + '" style="padding:7px 14px;border-radius:6px 6px 0 0;border:1px solid ' + (active ? '#1e293b' : '#e2e8f0') + ';border-bottom:' + (active ? '2px solid white' : '1px solid #e2e8f0') + ';background:' + (active ? 'white' : '#f8fafc') + ';color:' + (active ? '#1e293b' : '#64748b') + ';font-size:12px;font-weight:' + (active ? '700' : '500') + ';cursor:pointer;margin-bottom:-2px">' + h(LANG_NAMES[t.locale] || t.locale) + '</button>';
+        });
+        // Botón añadir idioma
+        var usedLocales = templates.map(function(t){ return t.locale; });
+        var available = Object.keys(LANG_NAMES).filter(function(l){ return usedLocales.indexOf(l) < 0; });
+        if (available.length) {
+          bar += '<button id="kat-vadd-lang" style="padding:7px 12px;border-radius:6px 6px 0 0;border:1px dashed #94a3b8;background:white;color:#64748b;font-size:12px;cursor:pointer;margin-bottom:-2px">+ Idioma</button>';
+        }
+        bar += '</div>';
+        return bar;
+      }
+
+      function renderActiveTab() {
+        var tpl = templates.find(function(t){ return t.locale === activeLoc; }) || templates[0];
+        var rec = tpl.rec || {};
+        var agent = rec.agent || {};
+        var profiles = agent.profiles || [{}];
+        var timetable = rec.timetable || {};
+        var eventsStyle = rec.eventsStyle || {};
+
+        // Construir form data para este idioma
+        var d = {
+          name: item.name || '', campaign: item.common && item.common.campaignTypeId || '',
+          typeId: item.common && item.common.campaignTypeId || '',
+          tplId: item.id || item.templateId || '',
+          templateCampaignId: tpl.templateCampaignId,
+          greeting: agent.greeting || '',
+          locale: tpl.locale,
+          p1: profiles[0] || {}, p2: profiles[1] || null,
+          timetable: timetable,
+          calculus: rec.events ? rec.events.filter(function(e){ return e !== 'CALL_SENT'; }).map(function(ev) {
+            var style = eventsStyle[ev] || {};
+            return { event: ev, level: DEF[ev] && DEF[ev].level || 3, condition: null, puntuation: DEF[ev] && DEF[ev].puntuation != null ? DEF[ev].puntuation : 0, icon: style.icon || 'write.svg', color: style.color || '#FFA500' };
+          }) : [],
+          extraction: rec.mapping && rec.mapping.extraction || {},
+          eventsStyle: eventsStyle,
+          params: rec.mapping && rec.mapping.params || {}
+        };
+
+        // Rebuild tabs + form
+        container.innerHTML = shell() + buildTabs() + '<div id="kat-vtab-form"></div>';
+
+        // Asignar evento back
+        document.getElementById('kat-vback').onclick = renderList;
+
+        // Asignar click en tabs
+        container.querySelectorAll('.kat-vtab').forEach(function(btn) {
+          btn.onclick = function() {
+            // Guardar cambios del tab actual antes de cambiar
+            activeLoc = this.dataset.locale;
+            state.activeLocale = activeLoc;
+            renderActiveTab();
+          };
+        });
+
+        // Botón añadir idioma
+        var addBtn = document.getElementById('kat-vadd-lang');
+        if (addBtn) addBtn.onclick = function() {
+          var usedLocales = templates.map(function(t){ return t.locale; });
+          var available = Object.keys(LANG_NAMES).filter(function(l){ return usedLocales.indexOf(l) < 0; });
+          if (!available.length) return;
+          var msg = 'Idiomas disponibles: ' + available.join(', ') + '. Escribe el c\u00f3digo del idioma:';
+          var lang = prompt(msg);
+          if (!lang || available.indexOf(lang.trim()) < 0) { if (lang) alert('Idioma no válido.'); return; }
+          lang = lang.trim();
+          // Clonar la estructura del primer template como base vacía
+          templates.push({ locale: lang, templateCampaignId: tpl.templateCampaignId, rec: {} });
+          activeLoc = lang;
+          state.activeLocale = lang;
+          renderActiveTab();
+        };
+
+        // Renderizar el formulario del idioma activo en el contenedor del tab
+        renderFormHtml('edit', item, d, document.getElementById('kat-vtab-form'));
+      }
+
+      renderActiveTab();
+    }
+
 
   KAT.registerModule({ key:'vishing_templates_draft', label:'BORRADOR - Plantillas de Vishing', icon:'&#9742;', order:75, forceGuiOnly:true, hideModeSwitch:true, renderGui:renderGui });
 })();
