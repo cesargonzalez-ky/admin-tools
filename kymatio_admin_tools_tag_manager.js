@@ -107,7 +107,6 @@
         '</div>',
 
         // Confirmación y botón
-        '<div id="kym-tag-confirm-box" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px;margin-bottom:14px;font-size:13px;color:#92400e"></div>',
         '<div id="kym-tag-status" style="display:none;margin-bottom:10px"></div>',
         '<button id="kym-tag-execute" style="width:100%;background:#1e293b;color:white;border:none;padding:10px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;display:none">MODIFICAR TAGS</button>',
         '<div id="kym-tag-log" style="display:none;margin-top:12px;background:#0f172a;border-radius:8px;padding:12px;font-size:11px;font-family:Menlo,Consolas,monospace;color:#94a3b8;max-height:200px;overflow-y:auto"></div>'
@@ -135,18 +134,13 @@
         var valueSelEl = document.getElementById('kym-tag-value-select');
         var value = (valueEl && valueEl.style.display !== 'none') ? valueEl.value.trim() : (valueSelEl ? valueSelEl.value : '');
         var count = targetEmails.length || state.users.length;
-        var box = document.getElementById('kym-tag-confirm-box');
         var btn = document.getElementById('kym-tag-execute');
 
         if (!tagName || (opMode === 'add' && !value) || (opMode === 'del' && !value)) {
-          if (box) box.style.display = 'none';
           if (btn) btn.style.display = 'none';
           return;
         }
 
-        var action = opMode === 'add' ? '<strong>añadir</strong>' : '<strong>eliminar</strong>';
-        var msg = 'Se va a ' + action + ' el TAG <strong>' + esc(tagName) + '</strong> con valor <strong>' + esc(value) + '</strong> para <strong>' + count + '</strong> usuarios. ¿Quieres proceder?';
-        if (box) { box.style.display = 'block'; box.innerHTML = msg; }
         if (btn) btn.style.display = 'block';
       }
 
@@ -376,7 +370,7 @@
       }
 
       // ── Ejecutar modificación de tags ────────────────────────────────────────
-      document.getElementById('kym-tag-execute').onclick = async function() {
+      document.getElementById('kym-tag-execute').onclick = function() {
         var tagId = document.getElementById('kym-tag-select').value;
         var tagObj = state.tags.find(function(t) { return String(t.id) === String(tagId); });
         var valueSelEl = document.getElementById('kym-tag-value-select');
@@ -385,6 +379,35 @@
 
         if (!tagId || !value || value === '__new__') return;
 
+        var usersCount = (targetEmails.length > 0
+          ? state.users.filter(function(u){ return targetEmails.indexOf((u.email||'').toLowerCase()) >= 0; })
+          : state.users).length;
+
+        // Modal de confirmación
+        var action = opMode === 'add' ? '<strong>añadir</strong>' : '<strong>eliminar</strong>';
+        var msg = 'Se va a ' + action + ' el TAG <strong>' + esc(tagObj ? tagObj.name : tagId) + '</strong> con valor <strong>' + esc(value) + '</strong> para <strong>' + usersCount + '</strong> usuarios. ¿Quieres proceder?';
+
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2147483647;display:flex;align-items:center;justify-content:center';
+        var box = document.createElement('div');
+        box.style.cssText = 'background:white;border-radius:12px;padding:28px;max-width:440px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3);font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif';
+        box.innerHTML = '<div style="font-size:15px;font-weight:700;color:#1a202c;margin-bottom:14px">Confirmar operación</div>' +
+          '<div style="font-size:14px;color:#475569;line-height:1.6;margin-bottom:24px">' + msg + '</div>' +
+          '<div style="display:flex;gap:10px">' +
+          '<button id="kym-tag-modal-cancel" style="flex:1;padding:10px;border:1px solid #e2e8f0;background:white;color:#475569;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Cancelar</button>' +
+          '<button id="kym-tag-modal-confirm" style="flex:1;padding:10px;background:#1e293b;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Proceder</button>' +
+          '</div>';
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        document.getElementById('kym-tag-modal-cancel').onclick = function() { overlay.remove(); };
+        document.getElementById('kym-tag-modal-confirm').onclick = function() {
+          overlay.remove();
+          doExecute(tagId, tagObj, value);
+        };
+      };
+
+      async function doExecute(tagId, tagObj, value) {
         var usersToProcess = targetEmails.length > 0
           ? state.users.filter(function(u){ return targetEmails.indexOf((u.email||'').toLowerCase()) >= 0; })
           : state.users;
@@ -427,7 +450,8 @@
                 // Eliminar valor específico
                 if (newTags[tagId]) {
                   newTags[tagId] = newTags[tagId].filter(function(v){ return v !== value; });
-                  if (newTags[tagId].length === 0) delete newTags[tagId];
+                  // Si es el último valor, enviar [""] para que la API lo elimine
+                  if (newTags[tagId].length === 0) newTags[tagId] = [''];
                 }
               }
 
