@@ -417,6 +417,7 @@
         logEl.style.display = 'block'; logEl.innerHTML = '';
 
         var ok = 0, err = 0;
+        var results = [];
         var total = usersToProcess.length;
         var isMulti = tagObj && tagObj.attributes && tagObj.attributes.multivalue;
 
@@ -471,9 +472,11 @@
               // 4. PUT
               await axios.put('admin/stakeholders/people/' + user.stakeholderId, payload);
               ok++;
+              results.push({ email: u.email || user.stakeholderId, status: 'OK', message: '' });
               log('✓ ' + (u.email || user.stakeholderId));
             } catch(e) {
               err++;
+              results.push({ email: user.email || user.stakeholderId, status: 'ERROR', message: e.message });
               log('✗ ' + (user.email || user.stakeholderId) + ': ' + e.message);
             }
           }));
@@ -482,6 +485,40 @@
 
         setStatus(statusEl, '&#10003; Completado: ' + ok + ' OK · ' + err + ' errores', ok > 0 ? 'ok' : 'err');
         log('Fin: ' + ok + ' OK, ' + err + ' errores');
+
+        // Botón descarga resultado
+        var dlBtn = document.createElement('button');
+        dlBtn.textContent = '⤓ Descargar resultado (' + results.length + ' filas)';
+        dlBtn.style.cssText = 'width:100%;margin-top:10px;background:#0369a1;color:white;border:none;padding:9px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer';
+        dlBtn.onclick = function() { downloadResultExcel(results, opMode, tagObj ? tagObj.name : tagId, value); };
+        var logEl2 = document.getElementById('kym-tag-log');
+        if (logEl2 && logEl2.parentNode) logEl2.parentNode.insertBefore(dlBtn, logEl2);
+      }
+
+      function downloadResultExcel(results, opMode, tagName, value) {
+        var rows = [['email', 'estado', 'mensaje']];
+        results.forEach(function(r) { rows.push([r.email, r.status, r.message]); });
+
+        var filename = 'kymatio_tags_resultado_' + new Date().toISOString().slice(0,10) + '.xlsx';
+
+        function buildXlsx() {
+          var wb = window.XLSX.utils.book_new();
+          var ws = window.XLSX.utils.aoa_to_sheet(rows);
+          ws['!cols'] = [{wch:40},{wch:8},{wch:60}];
+          // Título en la hoja
+          ws['A1'].v = 'email'; ws['B1'].v = 'estado'; ws['C1'].v = 'mensaje';
+          window.XLSX.utils.book_append_sheet(wb, ws, 'Resultado');
+          window.XLSX.writeFile(wb, filename);
+        }
+
+        if (window.XLSX) {
+          buildXlsx();
+        } else {
+          var s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+          s.onload = buildXlsx;
+          document.head.appendChild(s);
+        }
       };
     } // end renderPanel
   }
