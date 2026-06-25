@@ -221,33 +221,84 @@
       };
       fileInput.onchange = function() { if (this.files[0]) processFile(this.files[0]); };
 
+      function parseEmails(rows, headers) {
+        var emails = [];
+        var emailIdx = -1;
+        // Buscar columna email
+        headers.forEach(function(h, i) {
+          if ((h||'').toString().toLowerCase().trim() === 'email') emailIdx = i;
+        });
+        if (emailIdx < 0) emailIdx = 0;
+        rows.forEach(function(row) {
+          var val = (row[emailIdx] || row[headers[emailIdx]] || '').toString().trim().toLowerCase();
+          if (val && val.includes('@')) emails.push(val);
+        });
+        return emails;
+      }
+
+      function applyEmailsResult(file, emails) {
+        var matched = state.users.filter(function(u) {
+          return emails.indexOf((u.email||'').toLowerCase()) >= 0 ||
+                 emails.indexOf((u.login||'').toLowerCase()) >= 0;
+        });
+        targetEmails = matched.map(function(u){ return (u.email||'').toLowerCase(); });
+        var info = document.getElementById('kym-tag-file-info');
+        info.style.display = 'block';
+        info.innerHTML = '&#10003; <strong>' + file.name + '</strong>: ' + emails.length + ' emails leídos &rarr; <strong>' + matched.length + '</strong> usuarios encontrados en esta empresa';
+        updateConfirmBox();
+      }
+
       function processFile(file) {
-        var reader = new FileReader();
-        reader.onload = function(e) {
-          var text = e.target.result;
-          var emails = [];
-          // Intentar parsear como CSV/TXT con columna email
-          var lines = text.split(/\r?\n/).filter(function(l){ return l.trim(); });
-          var headers = lines[0].toLowerCase().split(/[,;\t]/);
-          var emailIdx = headers.indexOf('email');
-          if (emailIdx < 0) emailIdx = 0; // primera columna si no hay cabecera
-          lines.slice(1).forEach(function(line) {
-            var cols = line.split(/[,;\t]/);
-            var email = (cols[emailIdx] || '').trim().replace(/^["']|["']$/g, '').toLowerCase();
-            if (email && email.includes('@')) emails.push(email);
-          });
-          // Mapear a usuarios
-          var matched = state.users.filter(function(u) {
-            return emails.indexOf((u.email||'').toLowerCase()) >= 0 ||
-                   emails.indexOf((u.login||'').toLowerCase()) >= 0;
-          });
-          targetEmails = matched.map(function(u){ return u.email; });
-          var info = document.getElementById('kym-tag-file-info');
-          info.style.display = 'block';
-          info.textContent = '&#10003; ' + file.name + ': ' + emails.length + ' emails leídos → ' + matched.length + ' usuarios encontrados en esta empresa';
-          updateConfirmBox();
-        };
-        reader.readAsText(file);
+        var isXlsx = /\.xlsx?$/i.test(file.name);
+
+        function doWithXLSX() {
+          var reader = new FileReader();
+          reader.onload = function(e) {
+            try {
+              var wb = window.XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+              var ws = wb.Sheets[wb.SheetNames[0]];
+              var rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+              if (!rows.length) { applyEmailsResult(file, []); return; }
+              var headers = rows[0];
+              applyEmailsResult(file, parseEmails(rows.slice(1), headers));
+            } catch(err) {
+              var info = document.getElementById('kym-tag-file-info');
+              info.style.display = 'block';
+              info.textContent = '\u26a0 Error leyendo Excel: ' + err.message;
+            }
+          };
+          reader.readAsArrayBuffer(file);
+        }
+
+        function doAsText() {
+          var reader = new FileReader();
+          reader.onload = function(e) {
+            var lines = e.target.result.split(/\r?\n/).filter(function(l){ return l.trim(); });
+            if (!lines.length) { applyEmailsResult(file, []); return; }
+            var headers = lines[0].split(/[,;\t]/);
+            var rows = lines.slice(1).map(function(l){ return l.split(/[,;\t]/).map(function(c){ return c.replace(/^["']|["']$/g,''); }); });
+            applyEmailsResult(file, parseEmails(rows, headers));
+          };
+          reader.readAsText(file);
+        }
+
+        if (isXlsx) {
+          if (window.XLSX) {
+            doWithXLSX();
+          } else {
+            var s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+            s.onload = doWithXLSX;
+            s.onerror = function() {
+              var info = document.getElementById('kym-tag-file-info');
+              info.style.display = 'block';
+              info.textContent = '\u26a0 No se pudo cargar SheetJS. Usa CSV/TXT.';
+            };
+            document.head.appendChild(s);
+          }
+        } else {
+          doAsText();
+        }
       }
 
       // ── Descarga Excel de tags actuales ──────────────────────────────────────
@@ -279,8 +330,6 @@
       };
 
       function downloadTagsExcel(allUserTags) {
-        // Construir CSV multi-hoja (como ZIP de CSVs convertidos a XLSX simple)
-        // Usamos SheetJS si está disponible, si no generamos CSV por pestañas
         var tagMap = {};
         state.tags.forEach(function(t) { tagMap[t.id] = t.name; });
 
@@ -290,7 +339,8 @@
           var email = item.user.email || item.user.login || '';
           var tags = item.tags || {};
           Object.keys(tags).forEach(function(tagId) {
-            var tagName = tagMap[tagId] || ('TAG ' + tagId);
+            if (!tagMap[tagId]) return; // ignorar tags no conocidos
+            var tagName = tagMap[tagId];
             if (!sheets[tagName]) sheets[tagName] = [['email', tagName]];
             var values = Array.isArray(tags[tagId]) ? tags[tagId] : [tags[tagId]];
             values.forEach(function(v) { sheets[tagName].push([email, v]); });
@@ -302,27 +352,26 @@
           return;
         }
 
-        // Generar con SheetJS
-        if (window.XLSX) {
+        function buildXlsx() {
           var wb = window.XLSX.utils.book_new();
           Object.keys(sheets).forEach(function(sheetName) {
             var ws = window.XLSX.utils.aoa_to_sheet(sheets[sheetName]);
+            // Ajustar ancho de columnas
+            ws['!cols'] = [{wch: 40}, {wch: 30}];
             window.XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
           });
           window.XLSX.writeFile(wb, 'kymatio_tags_' + new Date().toISOString().slice(0,10) + '.xlsx');
+        }
+
+        // Cargar SheetJS dinámicamente si no está disponible
+        if (window.XLSX) {
+          buildXlsx();
         } else {
-          // Fallback: descargar CSV de cada pestaña concatenado
-          var csvContent = '';
-          Object.keys(sheets).forEach(function(sheetName) {
-            csvContent += '### ' + sheetName + '\n';
-            csvContent += sheets[sheetName].map(function(r){ return r.join(','); }).join('\n');
-            csvContent += '\n\n';
-          });
-          var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-          var url = URL.createObjectURL(blob);
-          var a = document.createElement('a');
-          a.href = url; a.download = 'kymatio_tags.csv';
-          a.click(); URL.revokeObjectURL(url);
+          var script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+          script.onload = function() { buildXlsx(); };
+          script.onerror = function() { alert('No se pudo cargar SheetJS para generar el Excel.'); };
+          document.head.appendChild(script);
         }
       }
 
