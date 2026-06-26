@@ -6,7 +6,7 @@
 
   var SURVEY_TYPE_ID = 10;
   var AGENT_ID = 151;
-  var MODULE_VERSION = 'vishing-08-own-company-filter';
+  var MODULE_VERSION = 'vishing-09-safe-partial-readonly';
 
   var LANG_NAMES = { 'es-es':'Español','es-mx':'Español (Latam)','en-us':'Inglés','eu':'Euskera','pl':'Polaco','cat':'Catalán','pt-pt':'Portugués (Portugal)','pt-br':'Portugués (Brasil)','sv':'Sueco','fr':'Francés','it':'Italiano','de':'Alemán' };
   var CATEGORIES = [
@@ -33,7 +33,7 @@
   var DAYS = [['Monday','Lunes'],['Tuesday','Martes'],['Wednesday','Miércoles'],['Thursday','Jueves'],['Friday','Viernes'],['Saturday','Sábado'],['Sunday','Domingo']];
 
   function renderGui(container, tools) {
-    var state = { langs:['es-es'], defLang:'es-es', list:[], page:0, dirty:false };
+    var state = { langs:['es-es'], defLang:'es-es', list:[], page:0, dirty:false, currentEditItem:null, currentEditLocale:null, currentLoadComplete:false, currentLoadPartial:false };
     var $ = tools.$;
     var esc = tools.escHtml;
     var status = tools.setStatus;
@@ -116,6 +116,69 @@
       if(d) Object.keys(d).forEach(add);
       add(state.defLang); add('es-es'); add('en-us'); add('pt-pt'); add('fr'); add('es-mx'); add('eu'); add('cat');
       return out;
+    }
+    function actualLocalesOf(item){
+      var out=[];
+      function add(x){ if(x && out.indexOf(x)<0) out.push(x); }
+      if(Array.isArray(item && item.locales)) item.locales.forEach(add);
+      var d=item && item.name && item.name.name && item.name.name.dictionary;
+      if(d) Object.keys(d).forEach(add);
+      add(item && item._firstLocale);
+      if(!out.length) add(state.defLang || 'es-es');
+      return out;
+    }
+    function langLabel(code){ return (LANG_NAMES[code] || code) + ' (' + code + ')'; }
+    function renderEditLanguageTools(item){
+      var bar=$('kat-vlangbar');
+      if(!bar) return;
+      var locales=actualLocalesOf(item);
+      var active=state.currentEditLocale || item._firstLocale || locales[0] || state.defLang;
+      var html='<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:12px">';
+      html+='<div style="font-size:11px;font-weight:800;color:#475569;margin-bottom:8px">Idiomas de la plantilla</div>';
+      html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">';
+      locales.forEach(function(loc){
+        var isActive=String(loc)===String(active);
+        html+='<button class="kat-vlangtab" data-locale="'+h(loc)+'" style="border:1px solid '+(isActive?'#0369a1':'#cbd5e1')+';background:'+(isActive?'#e0f2fe':'white')+';color:'+(isActive?'#075985':'#475569')+';padding:6px 9px;border-radius:999px;font-size:11px;font-weight:700;cursor:pointer">'+h(langLabel(loc))+'</button>';
+      });
+      html+='</div>';
+      var used={}; locales.forEach(function(x){ used[x]=true; });
+      var available=state.langs.filter(function(x){ return !used[x]; });
+      html+='<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end"><div>'+label('Añadir idioma',false)+'<select id="kat-vaddlang-select" style="'+css()+'"><option value="">Seleccionar idioma...</option>';
+      available.forEach(function(loc){ html+='<option value="'+h(loc)+'">'+h(langLabel(loc))+'</option>'; });
+      html+='</select></div><button id="kat-vaddlang-btn" style="background:white;border:1px dashed #94a3b8;color:#475569;padding:8px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">+ Añadir</button></div>';
+      html+='<div style="font-size:10px;color:#64748b;margin-top:6px">BORRADOR: añadir idioma crea la pestaña en pantalla. El guardado multiidioma se habilitará solo cuando la configuración completa sea recuperable.</div>';
+      html+='</div>';
+      bar.innerHTML=html;
+      bar.querySelectorAll('.kat-vlangtab').forEach(function(btn){ btn.onclick=function(){ hydrateEditForm(item, btn.getAttribute('data-locale')); }; });
+      var addBtn=$('kat-vaddlang-btn');
+      if(addBtn) addBtn.onclick=function(){
+        var sel=$('kat-vaddlang-select'); var loc=sel&&sel.value;
+        if(!loc) { alert('Selecciona un idioma.'); return; }
+        if(!item.locales) item.locales=actualLocalesOf(item);
+        if(item.locales.indexOf(loc)<0) item.locales.push(loc);
+        item._firstLocale=loc;
+        state.currentEditLocale=loc;
+        clearFormForNewLocale(loc);
+        renderEditLanguageTools(item);
+        status($('kat-vformstatus'),'⚠ Idioma añadido en borrador. Completa los campos. El guardado seguirá bloqueado si no existe configuración completa recuperable.','warn');
+      };
+    }
+    function setSaveEnabled(enabled, titleText){
+      var b=$('kat-vsave'); if(!b) return;
+      b.disabled=!enabled;
+      b.style.opacity=enabled?'1':'0.45';
+      b.style.cursor=enabled?'pointer':'not-allowed';
+      b.title=titleText || '';
+    }
+    function setFieldValue(id, value){ var e=$(id); if(e) e.value=value == null ? '' : value; }
+    function clearFormForNewLocale(loc){
+      state.currentLoadComplete=false; state.currentLoadPartial=true;
+      setFieldValue('kat-vlang', loc);
+      ['kat-vgreeting','kat-vpname1','kat-vcompany','kat-vdept','kat-vpersoninfo','kat-vcompanyinfo','kat-vdeptinfo','kat-vpname2'].forEach(function(id){ setFieldValue(id,''); });
+      setFieldValue('kat-vvoice1',''); setFieldValue('kat-vvoice2','');
+      for(var p=0;p<6;p++){ setFieldValue('kat-vpkey'+p, p===0?'target_name':p===1?'phone_number':p===2?'target_information':''); setFieldValue('kat-vpval'+p, p===0?'{{PERSON_NAME}}':p===1?'{{PHONE_NUMBER}}':p===2?'{{COMPANY_NAME}}':''); }
+      for(var i=1;i<=4;i++){ setFieldValue('kat-vevent'+i,''); setFieldValue('kat-vext'+i,''); }
+      setSaveEnabled(false,'No es seguro guardar hasta poder cargar configuration.mapping completo.');
     }
     function extractTemplateCampaignIdFromController(json){
       var rec = json && json.records;
@@ -274,19 +337,47 @@
       });
       if(styles.CALL_SENT){ setIf('kat-vfixedicon', styles.CALL_SENT.icon || 'sending.svg'); setIf('kat-vfixedcolor', styles.CALL_SENT.color || '#1BC5BD'); }
     }
-    async function hydrateEditForm(item){
+    function hasCompleteMappingRecord(rec){
+      var cfg = rec && rec.configuration;
+      var mapping = cfg && cfg.mapping;
+      return !!(mapping && mapping.params && Array.isArray(mapping.calculus) && mapping.extraction && mapping.eventsStyle);
+    }
+    function mergeControllerWithAdminMeta(controllerRec, item, locale){
+      var rec = Object.assign({}, controllerRec || {});
+      rec.locale = locale || rec.locale || item._firstLocale || state.defLang;
+      return rec;
+    }
+    async function hydrateEditForm(item, locale){
       var st=$('kat-vformstatus');
       var tplid=templateIdOf(item);
+      var loc=locale || state.currentEditLocale || item._firstLocale || actualLocalesOf(item)[0] || state.defLang;
+      state.currentEditItem=item;
+      state.currentEditLocale=loc;
+      renderEditLanguageTools(item);
       try{
         if(!tplid) throw new Error('No hay templateCampaignId para cargar el detalle.');
-        status(st,'⌛ Cargando contenido completo...','info');
-        var admin = await safeFetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplid));
+        status(st,'⌛ Cargando contenido de '+h(langLabel(loc))+'...','info');
+        setSaveEnabled(false,'Cargando contenido...');
+        var admin = await safeFetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplid)+'?locale='+encodeURIComponent(loc));
         var rec = admin && admin.records && admin.records.configuration ? admin.records : null;
-        if(!rec) rec = item._controllerRecord || {};
+        var complete = !!(rec && hasCompleteMappingRecord(rec));
+        if(!rec || !complete){
+          var typeId=typeIdOf(item);
+          var cid=currentCompanyId();
+          var ctrl=await safeFetchJson('https://api.kymatio.com/v2/controller/campaigns/'+encodeURIComponent(cid)+'/templates/'+encodeURIComponent(typeId)+'?locale='+encodeURIComponent(loc));
+          rec = mergeControllerWithAdminMeta((ctrl && ctrl.records) || item._controllerRecord || {}, item, loc);
+        }
         populateEditForm(rec, item);
-        if(admin && admin._katError) status(st,'⚠ Cargado contenido parcial desde operador. Admin: '+h(admin._katError),'err');
-        else status(st,'✓ Contenido cargado.','ok');
-      }catch(e){ status(st,'✗ '+h(e.message),'err'); }
+        state.currentLoadComplete=complete;
+        state.currentLoadPartial=!complete;
+        if(complete){
+          status(st,'✓ Contenido completo cargado. Guardado habilitado.','ok');
+          setSaveEnabled(true,'');
+        } else {
+          status(st,'⚠ Contenido parcial cargado desde operador. Falta configuration.mapping completo (params, calculus o extraction). Guardado deshabilitado para evitar sobrescribir datos no recuperados.','warn');
+          setSaveEnabled(false,'No es seguro guardar porque no se ha recuperado configuration.mapping completo.');
+        }
+      }catch(e){ state.currentLoadComplete=false; state.currentLoadPartial=true; setSaveEnabled(false,'Error cargando contenido.'); status(st,'✗ '+h(e.message),'err'); }
     }
 
     function renderForm(mode,item){
@@ -294,6 +385,7 @@
       var initialName=nameOf(item)||''; var initialCampaign=item&&item.campaignType||''; var initialTypeId=typeIdOf(item); var initialTplId=templateIdOf(item);
       container.innerHTML = shell() + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:11px;font-weight:700;color:#64748b">'+(mode==='create'?'CREAR PLANTILLA':'EDITAR PLANTILLA')+'</span><button id="kat-vback" style="background:0;border:0;color:#64748b;text-decoration:underline;cursor:pointer">← Volver</button></div>' +
         '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#1e40af;font-size:12px"><b>Organización:</b><br>'+h(org())+'</div>' +
+        (mode==='edit' ? '<div id="kat-vlangbar"></div>' : '') +
         title('1. Identificación') +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Nombre de la plantilla',true)+'<input id="kat-vname" value="'+h(initialName)+'" style="'+css()+'"></div><div>'+label('Idioma',true)+'<select id="kat-vlang" style="'+css()+'">'+langOptions(state.defLang)+'</select></div></div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Categoría',true)+'<select id="kat-vcat" style="'+css()+'">'+catOptions(5)+'</select></div><div>'+label('Nivel',true)+'<select id="kat-vlev" style="'+css()+'">'+lvlOptions(3)+'</select></div></div>' +
@@ -312,7 +404,7 @@
         '<div style="display:flex;gap:8px;margin-top:14px"><button id="kat-vjson" style="flex:1;background:white;border:1px solid #e2e8f0;color:#475569;padding:9px;border-radius:6px;font-weight:700;cursor:pointer">Ver JSON</button><button id="kat-vsave" style="flex:1;background:#1e293b;color:white;border:0;padding:9px;border-radius:6px;font-weight:700;cursor:pointer">✓ Guardar</button></div><div id="kat-vformstatus" style="display:none"></div><pre id="kat-vpreview" style="display:none;background:#0f172a;color:#cbd5e1;border-radius:8px;padding:12px;font-size:11px;white-space:pre-wrap;max-height:360px;overflow:auto;margin-top:10px"></pre>';
       $('kat-vback').onclick=renderList; ['kat-vname','kat-vcat','kat-vlev'].forEach(function(id){ $(id).oninput=function(){ syncCampaign(false); }; $(id).onchange=function(){ syncCampaign(false); }; }); $('kat-vctype').oninput=function(){ state.dirty=true; }; if(mode==='create') syncCampaign(true);
       [1,2,3,4].forEach(function(i){ $('kat-vevent'+i).onchange=function(){ setEventDefault(i); }; });
-      if(mode==='edit') hydrateEditForm(item);
+      if(mode==='edit') hydrateEditForm(item, item && item._firstLocale);
       $('kat-vjson').onclick=function(){ try{ var f=collect(); var prev={armazon:mode==='create'?skeleton(f):'(no se modifica el armazón en este borrador salvo creación)',contenido:template(Object.assign({},f,{campaignTypeId:f.campaignTypeId||0}))}; $('kat-vpreview').style.display='block'; $('kat-vpreview').textContent=JSON.stringify(prev,null,2); }catch(e){ status($('kat-vformstatus'),'✗ '+h(e.message),'err'); } };
       $('kat-vsave').onclick=function(){ save(mode).catch(function(e){ status($('kat-vformstatus'),'✗ '+h(e.message),'err'); }); };
     }
@@ -345,7 +437,10 @@
         status(st,'✓ Plantilla creada correctamente. campaignTypeId: '+h(f.campaignTypeId),'ok');
       } else {
         if(!f.campaignTypeId) throw new Error('No hay campaignTypeId.');
-        if(!confirm('Se va a guardar el contenido.\n\nBORRADOR: la modificación del armazón para añadir idiomas aún no está cerrada.\n\n¿Continuar?')) return;
+        if(!state.currentLoadComplete){
+          throw new Error('Guardado bloqueado: no se ha podido recuperar configuration.mapping completo (params, calculus y extraction). No es seguro sobrescribir esta plantilla.');
+        }
+        if(!confirm('Se va a guardar el contenido.\n\nSolo se permite porque la configuración completa se ha cargado correctamente.\n\n¿Continuar?')) return;
         var payload=template(f);
         if(tplid){ status(st,'⌛ Actualizando contenido...','info'); await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplid),{method:'PUT',body:JSON.stringify(payload)}); status(st,'✓ Contenido actualizado correctamente.','ok'); }
         else { status(st,'⌛ Guardando contenido nuevo...','info'); await fetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates',{method:'POST',body:JSON.stringify(payload)}); status(st,'✓ Contenido creado correctamente. Revisa si el armazón necesita dictionary para este idioma.','ok'); }
