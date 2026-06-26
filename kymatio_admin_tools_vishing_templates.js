@@ -6,7 +6,7 @@
 
   var SURVEY_TYPE_ID = 10;
   var AGENT_ID = 151;
-  var MODULE_VERSION = 'vishing-12-minimal-lang-fix';
+  var MODULE_VERSION = 'vishing-13-admin-locale-complete-check';
 
   var LANG_NAMES = { 'es-es':'Español','es-mx':'Español (Latam)','en-us':'Inglés','eu':'Euskera','pl':'Polaco','cat':'Catalán','pt-pt':'Portugués (Portugal)','pt-br':'Portugués (Brasil)','sv':'Sueco','fr':'Francés','it':'Italiano','de':'Alemán' };
   var CATEGORIES = [
@@ -414,6 +414,25 @@
     function adminLocaleOf(rec){
       return rec && rec.configuration && rec.configuration.params && rec.configuration.params.locale;
     }
+    function compactText(v){
+      return String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+    }
+    function greetingOfRecord(rec){
+      var cfg = rec && rec.configuration || {};
+      var setup = cfg.setup || cfg.configuration || {};
+      var agent = setup.agent || rec && rec.agent || {};
+      return agent && agent.greeting || '';
+    }
+    function cloneRecord(rec){
+      try { return JSON.parse(JSON.stringify(rec || {})); } catch(e) { return Object.assign({}, rec || {}); }
+    }
+    function forceRecordLocale(rec, locale){
+      var out = cloneRecord(rec);
+      out.locale = locale;
+      out.configuration = out.configuration || {};
+      out.configuration.params = Object.assign({}, out.configuration.params || {}, { locale: locale });
+      return out;
+    }
     async function hydrateEditForm(item, locale){
       var st=$('kat-vformstatus');
       var tplid=templateIdOf(item);
@@ -438,22 +457,32 @@
         var adminError = admin && admin._katError;
         var adminRec = admin && admin.records && admin.records.configuration ? admin.records : null;
         var adminLocale = adminLocaleOf(adminRec);
-        var complete = !!(adminRec && hasCompleteMappingRecord(adminRec) && (!adminLocale || String(adminLocale) === String(loc)));
 
-        var rec = mergeControllerWithAdminMeta(controllerRec, item, loc, adminRec, complete);
+        // En plantillas multiidioma de HAP hemos comprobado que admin/mgm puede devolver
+        // configuration.mapping completo cuando se consulta con ?locale=xx, aunque
+        // configuration.params.locale no siempre sea fiable para decidir el idioma visual.
+        // Por seguridad, si controller trae saludo del locale seleccionado y admin trae otro saludo distinto,
+        // se bloquea el guardado. Si coinciden o controller no trae saludo comparable, se acepta el mapping completo.
+        var adminHasComplete = !!(adminRec && hasCompleteMappingRecord(adminRec));
+        var ctrlGreeting = compactText(greetingOfRecord(controllerRec));
+        var adminGreeting = compactText(greetingOfRecord(adminRec));
+        var adminMatchesSelectedContent = !adminHasComplete || !ctrlGreeting || !adminGreeting || ctrlGreeting === adminGreeting;
+        var complete = !!(adminHasComplete && adminMatchesSelectedContent);
+
+        var rec = complete ? forceRecordLocale(adminRec, loc) : mergeControllerWithAdminMeta(controllerRec, item, loc, adminRec, false);
         populateEditForm(rec, item, loc);
         state.currentLoadComplete=complete;
         state.currentLoadPartial=!complete;
         if(complete){
-          status(st,'✓ Contenido completo cargado para '+h(langLabel(loc))+'. Guardado habilitado.','ok');
+          status(st,'✓ Contenido completo cargado para '+h(langLabel(loc))+'. Guardado habilitado.' + (adminLocale && String(adminLocale)!==String(loc) ? ' Nota: el locale interno de admin era '+h(langLabel(adminLocale))+' y se ha forzado en pantalla a '+h(langLabel(loc))+'.' : ''),'ok');
           setFormReadonly(false);
           setSaveEnabled(true,'');
         } else {
           var reason = 'Falta configuration.mapping completo para este idioma.';
-          if(adminRec && adminLocale && String(adminLocale) !== String(loc)) reason = 'Admin devuelve mapping de '+langLabel(adminLocale)+', no de '+langLabel(loc)+'.';
+          if(adminHasComplete && !adminMatchesSelectedContent) reason = 'Admin devuelve mapping completo, pero el contenido no coincide con el idioma seleccionado. Se bloquea por seguridad.';
           status(st,'⚠ Contenido cargado desde operador para '+h(langLabel(loc))+'. '+h(reason)+' Modo solo lectura y guardado deshabilitado.' + (adminError ? ' Admin: ' + h(adminError) : '') + (ctrlError ? ' Controller: ' + h(ctrlError) : ''),'warn');
           setFormReadonly(true);
-          setSaveEnabled(false,'No es seguro guardar porque no se ha recuperado configuration.mapping completo del idioma seleccionado.');
+          setSaveEnabled(false,'No es seguro guardar porque no se ha recuperado configuration.mapping completo y consistente del idioma seleccionado.');
         }
       }catch(e){ state.currentLoadComplete=false; state.currentLoadPartial=true; setFormReadonly(true); setSaveEnabled(false,'Error cargando contenido.'); status(st,'✗ '+h(e.message),'err'); }
     }
