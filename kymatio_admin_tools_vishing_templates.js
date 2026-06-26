@@ -4,7 +4,7 @@
   var KAT = window.KymatioAdminTools;
   if (!KAT) return;
 
-  var MODULE_VERSION = 'vishing-05-template-first';
+  var MODULE_VERSION = 'vishing-06-admin-full-config';
   var SURVEY_TYPE_ID = 10;
   var AGENT_ID = 151;
 
@@ -213,7 +213,7 @@
     }
 
     function campaignTypeOf(item) {
-      return pick(item, ['campaignType', 'common.campaignType', 'campaignTypeCode', 'common.campaignTypeCode']) || '';
+      return pick(item, ['campaignType', 'common.campaignType', 'campaignTypeCode', 'common.campaignTypeCode', 'campaignTypeName', 'common.campaignTypeName']) || '';
     }
 
     function nameOf(item, locale) {
@@ -558,6 +558,40 @@
       };
     }
 
+    function configLocaleOf(rec) {
+      return pick(rec, ['configuration.params.locale', 'params.locale']);
+    }
+
+    async function loadAdminTemplateContent(templateCampaignId, locale, allowAnyLocale) {
+      var urls = [];
+      if (locale) {
+        urls.push('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/' + encodeURIComponent(templateCampaignId) + '?locale=' + encodeURIComponent(locale));
+      }
+      urls.push('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/' + encodeURIComponent(templateCampaignId));
+
+      for (var u = 0; u < urls.length; u++) {
+        try {
+          var json = await fetchJson(urls[u]);
+          var rec = recordOf(json) || {};
+          if (!rec || !rec.configuration) continue;
+          var recLocale = configLocaleOf(rec);
+          if (locale && recLocale && String(recLocale).toLowerCase() !== String(locale).toLowerCase() && !allowAnyLocale) continue;
+          rec._source = 'admin-full';
+          return rec;
+        } catch (e) {
+          // Probamos la siguiente variante.
+        }
+      }
+      return null;
+    }
+
+    async function loadControllerTemplateContent(cid, campaignTypeId, locale) {
+      var json = await fetchJson('https://api.kymatio.com/v2/controller/campaigns/' + encodeURIComponent(cid) + '/templates/' + encodeURIComponent(campaignTypeId) + '?locale=' + encodeURIComponent(locale));
+      var rec = recordOf(json) || {};
+      rec._source = 'controller-partial';
+      return rec;
+    }
+
     async function loadTemplateBundle(item) {
       var cid = activeCompanyId();
       var templateCampaignId = templateCampaignIdOf(item);
@@ -573,19 +607,31 @@
 
       var locales = localesOf(detail);
       if (!locales.length) locales = localesOf(item);
+
+      var defaultAdminRec = await loadAdminTemplateContent(templateCampaignId, null, true);
+      var defaultLocale = defaultAdminRec && configLocaleOf(defaultAdminRec);
+      if ((!locales.length || (locales.length === 1 && !locales[0])) && defaultLocale) locales = [defaultLocale];
       if (!locales.length) locales = [state.defLang || 'es-es'];
 
       var byLocale = {};
       for (var i = 0; i < locales.length; i++) {
-        var locale = locales[i];
-        var rec = {};
-        try {
-          var ctrlJson = await fetchJson('https://api.kymatio.com/v2/controller/campaigns/' + encodeURIComponent(cid) + '/templates/' + encodeURIComponent(campaignTypeId) + '?locale=' + encodeURIComponent(locale));
-          rec = recordOf(ctrlJson) || {};
-        } catch (e1) {
-          rec = { _loadError: e1.message };
+        var locale = locales[i] || defaultLocale || state.defLang || 'es-es';
+        var rec = null;
+        if (defaultAdminRec && defaultLocale && String(defaultLocale).toLowerCase() === String(locale).toLowerCase()) {
+          rec = defaultAdminRec;
+        }
+        if (!rec) rec = await loadAdminTemplateContent(templateCampaignId, locale, false);
+        if (!rec) {
+          try {
+            rec = await loadControllerTemplateContent(cid, campaignTypeId, locale);
+            rec._warning = 'Contenido cargado desde controller: puede no incluir mapping completo.';
+          } catch (e1) {
+            rec = { _loadError: e1.message, _source: 'none' };
+          }
         }
         byLocale[locale] = normalizeContent(locale, rec, item, detail);
+        byLocale[locale].source = rec && rec._source || '';
+        byLocale[locale].loadWarning = rec && (rec._warning || rec._loadError) || '';
       }
 
       return {
