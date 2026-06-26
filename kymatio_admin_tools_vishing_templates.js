@@ -6,7 +6,7 @@
 
   var SURVEY_TYPE_ID = 10;
   var AGENT_ID = 151;
-  var MODULE_VERSION = 'vishing-09-safe-partial-readonly';
+  var MODULE_VERSION = 'vishing-10-locales-from-template-detail';
 
   var LANG_NAMES = { 'es-es':'Español','es-mx':'Español (Latam)','en-us':'Inglés','eu':'Euskera','pl':'Polaco','cat':'Catalán','pt-pt':'Portugués (Portugal)','pt-br':'Portugués (Brasil)','sv':'Sueco','fr':'Francés','it':'Italiano','de':'Alemán' };
   var CATEGORIES = [
@@ -121,13 +121,30 @@
       var out=[];
       function add(x){ if(x && out.indexOf(x)<0) out.push(x); }
       if(Array.isArray(item && item.locales)) item.locales.forEach(add);
+      if(item && item._templateDetail){
+        if(Array.isArray(item._templateDetail.locales)) item._templateDetail.locales.forEach(add);
+        if(Array.isArray(item._templateDetail.instances)) item._templateDetail.instances.forEach(function(inst){ add(inst && inst.locale); });
+      }
       var d=item && item.name && item.name.name && item.name.name.dictionary;
-      if(d) Object.keys(d).forEach(add);
+      if(d && !out.length) Object.keys(d).forEach(add);
       add(item && item._firstLocale);
       if(!out.length) add(state.defLang || 'es-es');
       return out;
     }
     function langLabel(code){ return (LANG_NAMES[code] || code) + ' (' + code + ')'; }
+    function uniqueLocales(list){
+      var out=[];
+      (list || []).forEach(function(x){ if(x && out.indexOf(x)<0) out.push(x); });
+      return out;
+    }
+    function localesFromTemplateDetail(detail){
+      var rec = detail && detail.records ? detail.records : detail;
+      var out=[];
+      if(rec && Array.isArray(rec.locales)) out = out.concat(rec.locales);
+      if(rec && Array.isArray(rec.instances)) rec.instances.forEach(function(inst){ if(inst && inst.locale) out.push(inst.locale); });
+      if(rec && rec.configuration && rec.configuration.params && rec.configuration.params.locale) out.push(rec.configuration.params.locale);
+      return uniqueLocales(out);
+    }
     function renderEditLanguageTools(item){
       var bar=$('kat-vlangbar');
       if(!bar) return;
@@ -142,14 +159,24 @@
       });
       html+='</div>';
       var used={}; locales.forEach(function(x){ used[x]=true; });
-      var available=state.langs.filter(function(x){ return !used[x]; });
-      html+='<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end"><div>'+label('Añadir idioma',false)+'<select id="kat-vaddlang-select" style="'+css()+'"><option value="">Seleccionar idioma...</option>';
+      var langPool=uniqueLocales(Object.keys(LANG_NAMES).concat(state.langs || []));
+      var available=langPool.filter(function(x){ return !used[x]; });
+      html+='<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end"><div>'+label('Añadir idioma',false)+'<input id="kat-vaddlang-search" placeholder="Buscar idioma..." style="'+css('margin-bottom:6px')+'"><select id="kat-vaddlang-select" style="'+css()+'"><option value="">Seleccionar idioma...</option>';
       available.forEach(function(loc){ html+='<option value="'+h(loc)+'">'+h(langLabel(loc))+'</option>'; });
       html+='</select></div><button id="kat-vaddlang-btn" style="background:white;border:1px dashed #94a3b8;color:#475569;padding:8px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">+ Añadir</button></div>';
       html+='<div style="font-size:10px;color:#64748b;margin-top:6px">BORRADOR: añadir idioma crea la pestaña en pantalla. El guardado multiidioma se habilitará solo cuando la configuración completa sea recuperable.</div>';
       html+='</div>';
       bar.innerHTML=html;
       bar.querySelectorAll('.kat-vlangtab').forEach(function(btn){ btn.onclick=function(){ hydrateEditForm(item, btn.getAttribute('data-locale')); }; });
+      var searchEl=$('kat-vaddlang-search');
+      if(searchEl) searchEl.oninput=function(){
+        var q=String(searchEl.value||'').toLowerCase();
+        var sel=$('kat-vaddlang-select'); if(!sel) return;
+        Array.prototype.forEach.call(sel.options, function(opt, idx){
+          if(idx===0) return;
+          opt.hidden = q && opt.text.toLowerCase().indexOf(q)<0;
+        });
+      };
       var addBtn=$('kat-vaddlang-btn');
       if(addBtn) addBtn.onclick=function(){
         var sel=$('kat-vaddlang-select'); var loc=sel&&sel.value;
@@ -207,13 +234,13 @@
       if(!templateCampaignId) return { show:false, reason:'sin plantilla asociada', typeId:typeId };
 
       var owner = null;
+      var detailJson = await safeFetchJson('https://api.kymatio.com/v2/campaigns/templates/'+encodeURIComponent(templateCampaignId)+'?companyId='+encodeURIComponent(cid));
+      var detailRec = detailJson && detailJson.records ? detailJson.records : null;
+      var detailLocales = localesFromTemplateDetail(detailJson);
+
       var adminJson = await safeFetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(templateCampaignId));
       if(adminJson && adminJson.records) owner = getOwnerFromRecord(adminJson.records);
-
-      if(owner == null){
-        var detailJson = await safeFetchJson('https://api.kymatio.com/v2/campaigns/templates/'+encodeURIComponent(templateCampaignId)+'?companyId='+encodeURIComponent(cid));
-        if(detailJson && detailJson.records) owner = getOwnerFromRecord(detailJson.records);
-      }
+      if(owner == null && detailRec) owner = getOwnerFromRecord(detailRec);
 
       if(String(owner) !== String(cid)){
         return { show:false, reason: owner == null ? 'empresa no confirmada' : 'heredada de '+owner, templateCampaignId:templateCampaignId, owner:owner, typeId:typeId };
@@ -222,9 +249,10 @@
       var out = Object.assign({}, item);
       out._templateCampaignId = templateCampaignId;
       out._ownerCompanyId = owner;
-      out._firstLocale = firstLocale || state.defLang;
+      out._firstLocale = firstLocale || (detailLocales && detailLocales[0]) || state.defLang;
       out._controllerRecord = firstController;
-      if(!out.locales || !out.locales.length) out.locales = [out._firstLocale];
+      out._templateDetail = detailRec;
+      out.locales = detailLocales.length ? detailLocales : (out.locales && out.locales.length ? out.locales : [out._firstLocale]);
       return { show:true, item:out, templateCampaignId:templateCampaignId, owner:owner, typeId:typeId };
     }
 
@@ -359,6 +387,7 @@
         status(st,'⌛ Cargando contenido de '+h(langLabel(loc))+'...','info');
         setSaveEnabled(false,'Cargando contenido...');
         var admin = await safeFetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplid)+'?locale='+encodeURIComponent(loc));
+        var adminError = admin && admin._katError;
         var rec = admin && admin.records && admin.records.configuration ? admin.records : null;
         var complete = !!(rec && hasCompleteMappingRecord(rec));
         if(!rec || !complete){
@@ -374,7 +403,7 @@
           status(st,'✓ Contenido completo cargado. Guardado habilitado.','ok');
           setSaveEnabled(true,'');
         } else {
-          status(st,'⚠ Contenido parcial cargado desde operador. Falta configuration.mapping completo (params, calculus o extraction). Guardado deshabilitado para evitar sobrescribir datos no recuperados.','warn');
+          status(st,'⚠ Contenido parcial cargado desde operador. Falta configuration.mapping completo (params, calculus o extraction). Guardado deshabilitado para evitar sobrescribir datos no recuperados.' + (adminError ? ' Admin: ' + h(adminError) : ''),'warn');
           setSaveEnabled(false,'No es seguro guardar porque no se ha recuperado configuration.mapping completo.');
         }
       }catch(e){ state.currentLoadComplete=false; state.currentLoadPartial=true; setSaveEnabled(false,'Error cargando contenido.'); status(st,'✗ '+h(e.message),'err'); }
