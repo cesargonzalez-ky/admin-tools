@@ -6,7 +6,7 @@
 
   var SURVEY_TYPE_ID = 10;
   var AGENT_ID = 151;
-  var MODULE_VERSION = 'vishing-13-admin-locale-complete-check';
+  var MODULE_VERSION = 'vishing-14-trust-admin-locale-mapping';
 
   var LANG_NAMES = { 'es-es':'Español','es-mx':'Español (Latam)','en-us':'Inglés','eu':'Euskera','pl':'Polaco','cat':'Catalán','pt-pt':'Portugués (Portugal)','pt-br':'Portugués (Brasil)','sv':'Sueco','fr':'Francés','it':'Italiano','de':'Alemán' };
   var CATEGORIES = [
@@ -458,28 +458,24 @@
         var adminRec = admin && admin.records && admin.records.configuration ? admin.records : null;
         var adminLocale = adminLocaleOf(adminRec);
 
-        // En plantillas multiidioma de HAP hemos comprobado que admin/mgm puede devolver
-        // configuration.mapping completo cuando se consulta con ?locale=xx, aunque
-        // configuration.params.locale no siempre sea fiable para decidir el idioma visual.
-        // Por seguridad, si controller trae saludo del locale seleccionado y admin trae otro saludo distinto,
-        // se bloquea el guardado. Si coinciden o controller no trae saludo comparable, se acepta el mapping completo.
+        // En plantillas multiidioma de HAP hemos comprobado que admin/mgm devuelve
+        // configuration.mapping completo cuando se consulta con ?locale=xx.
+        // No usamos el saludo como criterio de bloqueo porque controller y admin pueden
+        // devolver estructuras distintas o textos normalizados. Para la pantalla se usa
+        // controller del locale seleccionado; para seguridad/guardado se usa mapping de admin.
         var adminHasComplete = !!(adminRec && hasCompleteMappingRecord(adminRec));
-        var ctrlGreeting = compactText(greetingOfRecord(controllerRec));
-        var adminGreeting = compactText(greetingOfRecord(adminRec));
-        var adminMatchesSelectedContent = !adminHasComplete || !ctrlGreeting || !adminGreeting || ctrlGreeting === adminGreeting;
-        var complete = !!(adminHasComplete && adminMatchesSelectedContent);
+        var complete = !!adminHasComplete;
 
-        var rec = complete ? forceRecordLocale(adminRec, loc) : mergeControllerWithAdminMeta(controllerRec, item, loc, adminRec, false);
+        var rec = complete ? mergeControllerWithAdminMeta(controllerRec, item, loc, adminRec, true) : mergeControllerWithAdminMeta(controllerRec, item, loc, adminRec, false);
         populateEditForm(rec, item, loc);
         state.currentLoadComplete=complete;
         state.currentLoadPartial=!complete;
         if(complete){
-          status(st,'✓ Contenido completo cargado para '+h(langLabel(loc))+'. Guardado habilitado.' + (adminLocale && String(adminLocale)!==String(loc) ? ' Nota: el locale interno de admin era '+h(langLabel(adminLocale))+' y se ha forzado en pantalla a '+h(langLabel(loc))+'.' : ''),'ok');
+          status(st,'✓ Contenido completo cargado para '+h(langLabel(loc))+'. Guardado habilitado. Mapping recuperado desde admin/mgm con locale='+h(loc)+'.' + (adminLocale && String(adminLocale)!==String(loc) ? ' Nota: el locale interno de admin era '+h(langLabel(adminLocale))+' y se ha forzado en pantalla a '+h(langLabel(loc))+'.' : ''),'ok');
           setFormReadonly(false);
           setSaveEnabled(true,'');
         } else {
           var reason = 'Falta configuration.mapping completo para este idioma.';
-          if(adminHasComplete && !adminMatchesSelectedContent) reason = 'Admin devuelve mapping completo, pero el contenido no coincide con el idioma seleccionado. Se bloquea por seguridad.';
           status(st,'⚠ Contenido cargado desde operador para '+h(langLabel(loc))+'. '+h(reason)+' Modo solo lectura y guardado deshabilitado.' + (adminError ? ' Admin: ' + h(adminError) : '') + (ctrlError ? ' Controller: ' + h(ctrlError) : ''),'warn');
           setFormReadonly(true);
           setSaveEnabled(false,'No es seguro guardar porque no se ha recuperado configuration.mapping completo y consistente del idioma seleccionado.');
