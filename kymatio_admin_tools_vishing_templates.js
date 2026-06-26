@@ -6,7 +6,7 @@
 
   var SURVEY_TYPE_ID = 10;
   var AGENT_ID = 151;
-  var MODULE_VERSION = 'vishing-10-locales-from-template-detail';
+  var MODULE_VERSION = 'vishing-11-lite-safe-checks';
 
   var LANG_NAMES = { 'es-es':'Español','es-mx':'Español (Latam)','en-us':'Inglés','eu':'Euskera','pl':'Polaco','cat':'Catalán','pt-pt':'Portugués (Portugal)','pt-br':'Portugués (Brasil)','sv':'Sueco','fr':'Francés','it':'Italiano','de':'Alemán' };
   var CATEGORIES = [
@@ -109,13 +109,16 @@
     function currentCompanyId(){ return String(tools.state.companyId || tools.state.cid || detectCampaignListId() || '').trim(); }
     function campaignTypeIdOf(item){ return item && (item.campaignTypeId || item.typeId || item.id || (item.common && item.common.campaignTypeId) || '') || ''; }
     function localesOf(item){
+      // Lista mínima de idiomas para resolver templateCampaignId sin hacer decenas de llamadas.
+      // No se usa para pintar pestañas; las pestañas salen luego de /campaigns/templates/{templateCampaignId}?companyId={cid}.
       var out=[];
       function add(x){ if(x && out.indexOf(x)<0) out.push(x); }
-      if(Array.isArray(item && item.locales)) item.locales.forEach(add);
-      var d=item && item.name && item.name.name && item.name.name.dictionary;
-      if(d) Object.keys(d).forEach(add);
-      add(state.defLang); add('es-es'); add('en-us'); add('pt-pt'); add('fr'); add('es-mx'); add('eu'); add('cat');
-      return out;
+      add(state.defLang);
+      add('es-es');
+      add('en-us');
+      add(item && item._firstLocale);
+      if(Array.isArray(item && item.locales)) item.locales.slice(0,2).forEach(add);
+      return out.length ? out : ['es-es'];
     }
     function actualLocalesOf(item){
       var out=[];
@@ -197,6 +200,24 @@
       b.style.cursor=enabled?'pointer':'not-allowed';
       b.title=titleText || '';
     }
+    function setFormReadonly(readonly){
+      var formIds = [
+        'kat-vname','kat-vlang','kat-vcat','kat-vlev','kat-vctype',
+        'kat-vgreeting','kat-vpname1','kat-vvoice1','kat-vpname2','kat-vvoice2',
+        'kat-vcompany','kat-vdept','kat-vpersoninfo','kat-vcompanyinfo','kat-vdeptinfo',
+        'kat-vt1s','kat-vt1e','kat-vt2s','kat-vt2e','kat-vinterval','kat-vlimit',
+        'kat-vfixedicon','kat-vfixedcolor'
+      ];
+      DAYS.forEach(function(d){ formIds.push('kat-vday'+d[0]); });
+      for(var p=0;p<6;p++){ formIds.push('kat-vpkey'+p); formIds.push('kat-vpval'+p); }
+      for(var i=1;i<=4;i++){
+        formIds.push('kat-vevent'+i); formIds.push('kat-vlvl'+i); formIds.push('kat-vpunt'+i);
+        formIds.push('kat-vcond'+i); formIds.push('kat-vicon'+i); formIds.push('kat-vcolor'+i); formIds.push('kat-vext'+i);
+      }
+      formIds.forEach(function(id){ var e=$(id); if(e) e.disabled=!!readonly; });
+      var note=$('kat-vreadonly-note');
+      if(note) note.style.display=readonly ? 'block' : 'none';
+    }
     function setFieldValue(id, value){ var e=$(id); if(e) e.value=value == null ? '' : value; }
     function clearFormForNewLocale(loc){
       state.currentLoadComplete=false; state.currentLoadPartial=true;
@@ -220,6 +241,9 @@
     async function resolveOwnTemplate(item, cid){
       var typeId = campaignTypeIdOf(item);
       if(!typeId) return { show:false, reason:'sin campaignTypeId' };
+
+      // Resolución rápida: probar solo idioma por defecto + es-es + en-us.
+      // Las pestañas reales se detectan después con el detalle de plantilla.
       var locales = localesOf(item);
       var templateCampaignId = null;
       var firstController = null;
@@ -233,14 +257,11 @@
       }
       if(!templateCampaignId) return { show:false, reason:'sin plantilla asociada', typeId:typeId };
 
-      var owner = null;
+      // Única comprobación de propiedad en listado. No se llama a admin/mgm aquí para no ralentizar.
       var detailJson = await safeFetchJson('https://api.kymatio.com/v2/campaigns/templates/'+encodeURIComponent(templateCampaignId)+'?companyId='+encodeURIComponent(cid));
       var detailRec = detailJson && detailJson.records ? detailJson.records : null;
+      var owner = detailRec ? getOwnerFromRecord(detailRec) : null;
       var detailLocales = localesFromTemplateDetail(detailJson);
-
-      var adminJson = await safeFetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(templateCampaignId));
-      if(adminJson && adminJson.records) owner = getOwnerFromRecord(adminJson.records);
-      if(owner == null && detailRec) owner = getOwnerFromRecord(detailRec);
 
       if(String(owner) !== String(cid)){
         return { show:false, reason: owner == null ? 'empresa no confirmada' : 'heredada de '+owner, templateCampaignId:templateCampaignId, owner:owner, typeId:typeId };
@@ -249,10 +270,10 @@
       var out = Object.assign({}, item);
       out._templateCampaignId = templateCampaignId;
       out._ownerCompanyId = owner;
-      out._firstLocale = firstLocale || (detailLocales && detailLocales[0]) || state.defLang;
+      out._firstLocale = (detailLocales && detailLocales[0]) || firstLocale || state.defLang;
       out._controllerRecord = firstController;
       out._templateDetail = detailRec;
-      out.locales = detailLocales.length ? detailLocales : (out.locales && out.locales.length ? out.locales : [out._firstLocale]);
+      out.locales = detailLocales.length ? detailLocales : [out._firstLocale];
       return { show:true, item:out, templateCampaignId:templateCampaignId, owner:owner, typeId:typeId };
     }
 
@@ -271,19 +292,22 @@
       var st=$('kat-vstatus');
       try{
         state.list=[]; state.page=0; state.listStats={loading:true}; renderSummary(); renderRows();
-        status(st,'⌛ Cargando plantillas propias...','info');
+        status(st,'⌛ Cargando plantillas propias con comprobaciones mínimas...','info');
         var cid=currentCompanyId();
         state.cid=cid;
         var json=await fetchJson('https://api.kymatio.com/v2/controller/campaigns/'+encodeURIComponent(cid)+'/types');
         var available=extractList(json);
         var stats={available:available.length, own:0, inherited:0, unconfirmed:0, loading:false};
+
+        // Resolver en paralelo para evitar que el listado tarde mucho.
+        var resolved = await Promise.all(available.map(function(it){ return resolveOwnTemplate(it, cid); }));
         var results=[];
-        for(var i=0;i<available.length;i++){
-          var r=await resolveOwnTemplate(available[i], cid);
+        resolved.forEach(function(r){
           if(r.show){ results.push(r.item); stats.own++; }
           else if(r.reason && r.reason.indexOf('heredada')===0){ stats.inherited++; }
           else { stats.unconfirmed++; }
-        }
+        });
+
         state.list=results;
         state.listStats=stats;
         status(st,'✓ Plantillas propias cargadas: '+state.list.length,'ok');
@@ -301,7 +325,8 @@
       rows.forEach(function(it){
         var row=document.createElement('div');
         row.style.cssText='border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:10px 12px;margin-bottom:8px';
-        var meta='campaignTypeId: '+h(typeIdOf(it)||'?')+' · templateCampaignId: '+h(it._templateCampaignId||'?')+' · propia de empresa '+h(it._ownerCompanyId||'?');
+        var locs=actualLocalesOf(it);
+        var meta='campaignTypeId: '+h(typeIdOf(it)||'?')+' · templateCampaignId: '+h(it._templateCampaignId||'?')+' · propia de empresa '+h(it._ownerCompanyId||'?')+' · idiomas: '+h(locs.join(', ') || 'sin detectar');
         row.innerHTML='<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h(nameOf(it))+'</div><div style="font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h(it.campaignType||'')+'</div><div style="font-size:10px;color:#94a3b8">'+meta+'</div></div><button class="edit" style="background:#0369a1;color:white;border:0;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Editar</button></div>';
         row.querySelector('.edit').onclick=function(){ renderForm('edit',it); };
         box.appendChild(row);
@@ -401,12 +426,14 @@
         state.currentLoadPartial=!complete;
         if(complete){
           status(st,'✓ Contenido completo cargado. Guardado habilitado.','ok');
+          setFormReadonly(false);
           setSaveEnabled(true,'');
         } else {
-          status(st,'⚠ Contenido parcial cargado desde operador. Falta configuration.mapping completo (params, calculus o extraction). Guardado deshabilitado para evitar sobrescribir datos no recuperados.' + (adminError ? ' Admin: ' + h(adminError) : ''),'warn');
+          status(st,'⚠ Contenido parcial cargado desde operador. Falta configuration.mapping completo (params, calculus o extraction). Modo solo lectura y guardado deshabilitado para evitar sobrescribir datos no recuperados.' + (adminError ? ' Admin: ' + h(adminError) : ''),'warn');
+          setFormReadonly(true);
           setSaveEnabled(false,'No es seguro guardar porque no se ha recuperado configuration.mapping completo.');
         }
-      }catch(e){ state.currentLoadComplete=false; state.currentLoadPartial=true; setSaveEnabled(false,'Error cargando contenido.'); status(st,'✗ '+h(e.message),'err'); }
+      }catch(e){ state.currentLoadComplete=false; state.currentLoadPartial=true; setFormReadonly(true); setSaveEnabled(false,'Error cargando contenido.'); status(st,'✗ '+h(e.message),'err'); }
     }
 
     function renderForm(mode,item){
@@ -414,7 +441,7 @@
       var initialName=nameOf(item)||''; var initialCampaign=item&&item.campaignType||''; var initialTypeId=typeIdOf(item); var initialTplId=templateIdOf(item);
       container.innerHTML = shell() + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:11px;font-weight:700;color:#64748b">'+(mode==='create'?'CREAR PLANTILLA':'EDITAR PLANTILLA')+'</span><button id="kat-vback" style="background:0;border:0;color:#64748b;text-decoration:underline;cursor:pointer">← Volver</button></div>' +
         '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#1e40af;font-size:12px"><b>Organización:</b><br>'+h(org())+'</div>' +
-        (mode==='edit' ? '<div id="kat-vlangbar"></div>' : '') +
+        (mode==='edit' ? '<div id="kat-vreadonly-note" style="display:none;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#9a3412;font-size:12px"><b>Solo lectura parcial.</b><br>No se ha podido recuperar configuration.mapping completo. Los campos se muestran para consulta, pero no se pueden editar ni guardar de forma segura.</div><div id="kat-vlangbar"></div>' : '') +
         title('1. Identificación') +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Nombre de la plantilla',true)+'<input id="kat-vname" value="'+h(initialName)+'" style="'+css()+'"></div><div>'+label('Idioma',true)+'<select id="kat-vlang" style="'+css()+'">'+langOptions(state.defLang)+'</select></div></div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Categoría',true)+'<select id="kat-vcat" style="'+css()+'">'+catOptions(5)+'</select></div><div>'+label('Nivel',true)+'<select id="kat-vlev" style="'+css()+'">'+lvlOptions(3)+'</select></div></div>' +
@@ -433,6 +460,7 @@
         '<div style="display:flex;gap:8px;margin-top:14px"><button id="kat-vjson" style="flex:1;background:white;border:1px solid #e2e8f0;color:#475569;padding:9px;border-radius:6px;font-weight:700;cursor:pointer">Ver JSON</button><button id="kat-vsave" style="flex:1;background:#1e293b;color:white;border:0;padding:9px;border-radius:6px;font-weight:700;cursor:pointer">✓ Guardar</button></div><div id="kat-vformstatus" style="display:none"></div><pre id="kat-vpreview" style="display:none;background:#0f172a;color:#cbd5e1;border-radius:8px;padding:12px;font-size:11px;white-space:pre-wrap;max-height:360px;overflow:auto;margin-top:10px"></pre>';
       $('kat-vback').onclick=renderList; ['kat-vname','kat-vcat','kat-vlev'].forEach(function(id){ $(id).oninput=function(){ syncCampaign(false); }; $(id).onchange=function(){ syncCampaign(false); }; }); $('kat-vctype').oninput=function(){ state.dirty=true; }; if(mode==='create') syncCampaign(true);
       [1,2,3,4].forEach(function(i){ $('kat-vevent'+i).onchange=function(){ setEventDefault(i); }; });
+      if(mode!=='edit') setFormReadonly(false);
       if(mode==='edit') hydrateEditForm(item, item && item._firstLocale);
       $('kat-vjson').onclick=function(){ try{ var f=collect(); var prev={armazon:mode==='create'?skeleton(f):'(no se modifica el armazón en este borrador salvo creación)',contenido:template(Object.assign({},f,{campaignTypeId:f.campaignTypeId||0}))}; $('kat-vpreview').style.display='block'; $('kat-vpreview').textContent=JSON.stringify(prev,null,2); }catch(e){ status($('kat-vformstatus'),'✗ '+h(e.message),'err'); } };
       $('kat-vsave').onclick=function(){ save(mode).catch(function(e){ status($('kat-vformstatus'),'✗ '+h(e.message),'err'); }); };
