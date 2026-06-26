@@ -4,7 +4,7 @@
   var KAT = window.KymatioAdminTools;
   if (!KAT) return;
 
-  var MODULE_VERSION = 'vishing-06-admin-full-config';
+  var MODULE_VERSION = 'vishing-07-operator-types-list';
   var SURVEY_TYPE_ID = 10;
   var AGENT_ID = 151;
 
@@ -205,11 +205,11 @@
     }
 
     function templateCampaignIdOf(item) {
-      return pick(item, ['templateCampaignId', 'id', 'campaignTemplateId', 'templateId', 'template.id']);
+      return pick(item, ['_katTemplateCampaignId', 'templateCampaignId', 'campaignTemplateId', 'templateId', 'template.id']);
     }
 
     function campaignTypeIdOf(item) {
-      return pick(item, ['campaignTypeId', 'common.campaignTypeId', 'typeId', 'common.typeId', 'campaignType.id']);
+      return pick(item, ['_katCampaignTypeId', 'campaignTypeId', 'common.campaignTypeId', 'typeId', 'common.typeId', 'campaignType.id', 'id']);
     }
 
     function campaignTypeOf(item) {
@@ -340,6 +340,11 @@
     }
 
     function belongsToActiveCompany(item) {
+      // En el endpoint controller/campaigns/{companyId}/types ya vienen las carcasas
+      // disponibles para la empresa activa, incluyendo las heredadas de HAP.
+      // No filtramos por stakeholderCompanyId cuando el item viene de ese listado,
+      // porque normalmente no trae ese campo.
+      if (item && item._katSource === 'controller-types') return true;
       var itemCid = companyIdOf(item);
       if (itemCid == null) return true;
       return Number(itemCid) === activeCompanyId();
@@ -368,15 +373,25 @@
     async function loadList() {
       var st = $('kat-vstatus');
       try {
-        status(st, '⌛ Cargando plantillas de ' + org() + '...', 'info');
+        status(st, '⌛ Cargando plantillas disponibles para ' + org() + '...', 'info');
         var cid = activeCompanyId();
-        var json = await fetchJson('https://api.kymatio.com/v2/campaigns/templates?companyId=' + encodeURIComponent(cid));
+
+        // En operador, el endpoint fiable para saber qué plantillas están disponibles
+        // para una empresa es controller/campaigns/{companyId}/types. Incluye las
+        // propias de la empresa y las heredadas de HAP.
+        var json = await fetchJson('https://api.kymatio.com/v2/controller/campaigns/' + encodeURIComponent(cid) + '/types');
         var all = recordsOf(json);
         state.rawListCount = all.length;
-        state.list = all.filter(function (it) { return isVishingTemplate(it) && belongsToActiveCompany(it); });
+        state.list = all.filter(function (it) { return Number(surveyTypeOf(it)) === SURVEY_TYPE_ID; }).map(function (it) {
+          var copy = Object.assign({}, it);
+          copy._katSource = 'controller-types';
+          copy._katCampaignTypeId = campaignTypeIdOf(it);
+          copy._katTemplateCampaignId = null;
+          return copy;
+        });
         state.page = 0;
         state.loadedOnce = true;
-        status(st, '✓ Plantillas cargadas: ' + state.list.length + ' de ' + org() + ' · recibidas del endpoint: ' + all.length, 'ok');
+        status(st, '✓ Plantillas de Vishing disponibles: ' + state.list.length + ' · carcasas recibidas: ' + all.length, 'ok');
         renderRows();
       } catch (e) {
         state.loadedOnce = true;
@@ -403,7 +418,7 @@
       if (!state.loadedOnce) {
         box.innerHTML = '<div style="padding:16px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;margin-bottom:10px">Cargando listado automáticamente...</div>';
       } else if (!rows.length) {
-        box.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;margin-bottom:10px">No hay plantillas de Vishing asignadas a esta organización.</div>';
+        box.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;margin-bottom:10px">No hay plantillas de Vishing disponibles para esta organización.</div>';
       }
 
       rows.forEach(function (it) {
@@ -592,26 +607,67 @@
       return rec;
     }
 
+    function uniqueList(values) {
+      var out = [];
+      values.forEach(function (v) {
+        v = String(v || '').trim();
+        if (v && out.indexOf(v) < 0) out.push(v);
+      });
+      return out;
+    }
+
+    async function resolveTemplateCampaignIdFromController(cid, campaignTypeId, localeCandidates) {
+      var lastError = null;
+      for (var i = 0; i < localeCandidates.length; i++) {
+        var locale = localeCandidates[i];
+        try {
+          var rec = await loadControllerTemplateContent(cid, campaignTypeId, locale);
+          var tid = templateCampaignIdOf(rec);
+          if (tid) return { templateCampaignId: tid, locale: locale, rec: rec };
+        } catch (e) {
+          lastError = e;
+        }
+      }
+      if (lastError) throw lastError;
+      throw new Error('No he podido localizar templateCampaignId para campaignTypeId ' + campaignTypeId + '.');
+    }
+
     async function loadTemplateBundle(item) {
       var cid = activeCompanyId();
-      var templateCampaignId = templateCampaignIdOf(item);
-      if (!templateCampaignId) throw new Error('No he podido detectar templateCampaignId de la plantilla.');
-
-      var detailJson = await fetchJson('https://api.kymatio.com/v2/campaigns/templates/' + encodeURIComponent(templateCampaignId) + '?companyId=' + encodeURIComponent(cid));
-      var detail = recordOf(detailJson) || item;
-      var detailCid = companyIdOf(detail);
-      if (detailCid != null && Number(detailCid) !== cid) throw new Error('Esta plantilla pertenece a otra empresa.');
-
-      var campaignTypeId = campaignTypeIdOf(detail) || campaignTypeIdOf(item);
+      var campaignTypeId = campaignTypeIdOf(item);
       if (!campaignTypeId) throw new Error('No he podido detectar campaignTypeId de la plantilla.');
 
-      var locales = localesOf(detail);
-      if (!locales.length) locales = localesOf(item);
+      var localeCandidates = uniqueList([state.defLang, 'es-es'].concat(localesOf(item)));
+      var firstController = null;
+
+      // Si venimos del listado de carcasas/types, no tenemos templateCampaignId.
+      // Lo resolvemos con controller/campaigns/{companyId}/templates/{campaignTypeId}?locale=X.
+      var templateCampaignId = templateCampaignIdOf(item);
+      if (!templateCampaignId) {
+        firstController = await resolveTemplateCampaignIdFromController(cid, campaignTypeId, localeCandidates);
+        templateCampaignId = firstController.templateCampaignId;
+      }
+      if (!templateCampaignId) throw new Error('No he podido detectar templateCampaignId de la plantilla.');
+
+      var detail = item;
+      try {
+        var detailJson = await fetchJson('https://api.kymatio.com/v2/campaigns/templates/' + encodeURIComponent(templateCampaignId) + '?companyId=' + encodeURIComponent(cid));
+        detail = recordOf(detailJson) || item;
+      } catch (e0) {
+        detail = item;
+      }
+
+      var detailCid = companyIdOf(detail);
+      if (detailCid != null && Number(detailCid) !== cid && Number(detailCid) !== 1) {
+        throw new Error('Esta plantilla pertenece a otra empresa.');
+      }
+
+      var locales = uniqueList(localesOf(detail).concat(localesOf(item), localeCandidates));
+      if (!locales.length) locales = [state.defLang || 'es-es'];
 
       var defaultAdminRec = await loadAdminTemplateContent(templateCampaignId, null, true);
       var defaultLocale = defaultAdminRec && configLocaleOf(defaultAdminRec);
-      if ((!locales.length || (locales.length === 1 && !locales[0])) && defaultLocale) locales = [defaultLocale];
-      if (!locales.length) locales = [state.defLang || 'es-es'];
+      if (defaultLocale && locales.indexOf(defaultLocale) < 0) locales.unshift(defaultLocale);
 
       var byLocale = {};
       for (var i = 0; i < locales.length; i++) {
@@ -621,6 +677,11 @@
           rec = defaultAdminRec;
         }
         if (!rec) rec = await loadAdminTemplateContent(templateCampaignId, locale, false);
+        if (!rec && firstController && firstController.locale === locale) {
+          rec = firstController.rec;
+          rec._source = rec._source || 'controller-partial';
+          rec._warning = 'Contenido cargado desde controller: puede no incluir mapping completo.';
+        }
         if (!rec) {
           try {
             rec = await loadControllerTemplateContent(cid, campaignTypeId, locale);
@@ -630,6 +691,8 @@
           }
         }
         byLocale[locale] = normalizeContent(locale, rec, item, detail);
+        byLocale[locale].templateCampaignId = templateCampaignId;
+        byLocale[locale].campaignTypeId = campaignTypeId;
         byLocale[locale].source = rec && rec._source || '';
         byLocale[locale].loadWarning = rec && (rec._warning || rec._loadError) || '';
       }
