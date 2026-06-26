@@ -6,7 +6,7 @@
 
   var SURVEY_TYPE_ID = 10;
   var AGENT_ID = 151;
-  var MODULE_VERSION = 'vishing-11-lite-safe-checks';
+  var MODULE_VERSION = 'vishing-12-minimal-lang-fix';
 
   var LANG_NAMES = { 'es-es':'Español','es-mx':'Español (Latam)','en-us':'Inglés','eu':'Euskera','pl':'Polaco','cat':'Catalán','pt-pt':'Portugués (Portugal)','pt-br':'Portugués (Brasil)','sv':'Sueco','fr':'Francés','it':'Italiano','de':'Alemán' };
   var CATEGORIES = [
@@ -50,7 +50,13 @@
       list.forEach(function (x) { var v = valueKey ? x[valueKey] : x[0]; var l = labelKey ? x[labelKey] : x[1]; s += '<option value="' + h(v) + '" ' + (String(v) === String(selected) ? 'selected' : '') + '>' + h(l) + '</option>'; });
       return s;
     }
-    function langOptions(sel){ var s=''; state.langs.forEach(function(code){ s+='<option value="'+h(code)+'" '+(code===sel?'selected':'')+'>'+h((LANG_NAMES[code]||code)+' ('+code+')')+'</option>'; }); return s; }
+    function langOptions(sel, extraLocales){
+      var pool = uniqueLocales((extraLocales || []).concat(state.langs || []));
+      if(sel && pool.indexOf(sel) < 0) pool.unshift(sel);
+      var s='';
+      pool.forEach(function(code){ s+='<option value="'+h(code)+'" '+(code===sel?'selected':'')+'>'+h((LANG_NAMES[code]||code)+' ('+code+')')+'</option>'; });
+      return s;
+    }
     function catOptions(sel){ return opt(CATEGORIES, sel, 'id', 'label'); }
     function lvlOptions(sel){ return opt(LEVELS, sel, 'id', 'label'); }
     function voiceOptions(sel){ var s='<option value="">Seleccionar voz...</option>'; VOICES.forEach(function(v){ var txt=v[0]+' - '+v[1]+' - '+v[2]+' - '+v[3]; s+='<option value="'+h(v[0])+'" '+(v[0]===sel?'selected':'')+'>'+h(txt)+'</option>'; }); return s; }
@@ -342,7 +348,7 @@
 
     function profileGet(p, snake, camel){ return p && (p[snake] != null ? p[snake] : p[camel]) || ''; }
     function setIf(id, value){ var e=$(id); if(e && value != null) e.value=value; }
-    function populateEditForm(rec, item){
+    function populateEditForm(rec, item, forcedLocale){
       rec = rec || {};
       var cfg = rec.configuration || {};
       var setup = cfg.setup || cfg.configuration || {};
@@ -353,7 +359,7 @@
       var profiles = agent.profiles || [];
       var p1 = profiles[0] || {};
       var p2 = profiles[1] || null;
-      var locale = (cfg.params && cfg.params.locale) || rec.locale || item._firstLocale || state.defLang;
+      var locale = forcedLocale || rec.locale || (cfg.params && cfg.params.locale) || item._firstLocale || state.defLang;
       setIf('kat-vlang', locale);
       setIf('kat-vgreeting', agent.greeting || '');
       setIf('kat-vpname1', profileGet(p1,'person_name','personName'));
@@ -395,10 +401,18 @@
       var mapping = cfg && cfg.mapping;
       return !!(mapping && mapping.params && Array.isArray(mapping.calculus) && mapping.extraction && mapping.eventsStyle);
     }
-    function mergeControllerWithAdminMeta(controllerRec, item, locale){
+    function mergeControllerWithAdminMeta(controllerRec, item, locale, adminRec, includeMapping){
       var rec = Object.assign({}, controllerRec || {});
       rec.locale = locale || rec.locale || item._firstLocale || state.defLang;
+      if(includeMapping && adminRec && adminRec.configuration && adminRec.configuration.mapping){
+        rec.configuration = rec.configuration || {};
+        rec.configuration.mapping = adminRec.configuration.mapping;
+        rec.configuration.params = Object.assign({}, rec.configuration.params || {}, { locale: rec.locale });
+      }
       return rec;
+    }
+    function adminLocaleOf(rec){
+      return rec && rec.configuration && rec.configuration.params && rec.configuration.params.locale;
     }
     async function hydrateEditForm(item, locale){
       var st=$('kat-vformstatus');
@@ -411,27 +425,35 @@
         if(!tplid) throw new Error('No hay templateCampaignId para cargar el detalle.');
         status(st,'⌛ Cargando contenido de '+h(langLabel(loc))+'...','info');
         setSaveEnabled(false,'Cargando contenido...');
+        var typeId=typeIdOf(item);
+        var cid=currentCompanyId();
+
+        // La vista se carga siempre desde controller con el locale seleccionado.
+        // En HAP, admin/mgm puede ignorar ?locale y devolver otro idioma; por eso no se usa como fuente visual salvo que coincida.
+        var ctrl=await safeFetchJson('https://api.kymatio.com/v2/controller/campaigns/'+encodeURIComponent(cid)+'/templates/'+encodeURIComponent(typeId)+'?locale='+encodeURIComponent(loc));
+        var controllerRec=(ctrl && ctrl.records) || item._controllerRecord || {};
+        var ctrlError = ctrl && ctrl._katError;
+
         var admin = await safeFetchJson('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplid)+'?locale='+encodeURIComponent(loc));
         var adminError = admin && admin._katError;
-        var rec = admin && admin.records && admin.records.configuration ? admin.records : null;
-        var complete = !!(rec && hasCompleteMappingRecord(rec));
-        if(!rec || !complete){
-          var typeId=typeIdOf(item);
-          var cid=currentCompanyId();
-          var ctrl=await safeFetchJson('https://api.kymatio.com/v2/controller/campaigns/'+encodeURIComponent(cid)+'/templates/'+encodeURIComponent(typeId)+'?locale='+encodeURIComponent(loc));
-          rec = mergeControllerWithAdminMeta((ctrl && ctrl.records) || item._controllerRecord || {}, item, loc);
-        }
-        populateEditForm(rec, item);
+        var adminRec = admin && admin.records && admin.records.configuration ? admin.records : null;
+        var adminLocale = adminLocaleOf(adminRec);
+        var complete = !!(adminRec && hasCompleteMappingRecord(adminRec) && (!adminLocale || String(adminLocale) === String(loc)));
+
+        var rec = mergeControllerWithAdminMeta(controllerRec, item, loc, adminRec, complete);
+        populateEditForm(rec, item, loc);
         state.currentLoadComplete=complete;
         state.currentLoadPartial=!complete;
         if(complete){
-          status(st,'✓ Contenido completo cargado. Guardado habilitado.','ok');
+          status(st,'✓ Contenido completo cargado para '+h(langLabel(loc))+'. Guardado habilitado.','ok');
           setFormReadonly(false);
           setSaveEnabled(true,'');
         } else {
-          status(st,'⚠ Contenido parcial cargado desde operador. Falta configuration.mapping completo (params, calculus o extraction). Modo solo lectura y guardado deshabilitado para evitar sobrescribir datos no recuperados.' + (adminError ? ' Admin: ' + h(adminError) : ''),'warn');
+          var reason = 'Falta configuration.mapping completo para este idioma.';
+          if(adminRec && adminLocale && String(adminLocale) !== String(loc)) reason = 'Admin devuelve mapping de '+langLabel(adminLocale)+', no de '+langLabel(loc)+'.';
+          status(st,'⚠ Contenido cargado desde operador para '+h(langLabel(loc))+'. '+h(reason)+' Modo solo lectura y guardado deshabilitado.' + (adminError ? ' Admin: ' + h(adminError) : '') + (ctrlError ? ' Controller: ' + h(ctrlError) : ''),'warn');
           setFormReadonly(true);
-          setSaveEnabled(false,'No es seguro guardar porque no se ha recuperado configuration.mapping completo.');
+          setSaveEnabled(false,'No es seguro guardar porque no se ha recuperado configuration.mapping completo del idioma seleccionado.');
         }
       }catch(e){ state.currentLoadComplete=false; state.currentLoadPartial=true; setFormReadonly(true); setSaveEnabled(false,'Error cargando contenido.'); status(st,'✗ '+h(e.message),'err'); }
     }
@@ -443,7 +465,7 @@
         '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#1e40af;font-size:12px"><b>Organización:</b><br>'+h(org())+'</div>' +
         (mode==='edit' ? '<div id="kat-vreadonly-note" style="display:none;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#9a3412;font-size:12px"><b>Solo lectura parcial.</b><br>No se ha podido recuperar configuration.mapping completo. Los campos se muestran para consulta, pero no se pueden editar ni guardar de forma segura.</div><div id="kat-vlangbar"></div>' : '') +
         title('1. Identificación') +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Nombre de la plantilla',true)+'<input id="kat-vname" value="'+h(initialName)+'" style="'+css()+'"></div><div>'+label('Idioma',true)+'<select id="kat-vlang" style="'+css()+'">'+langOptions(state.defLang)+'</select></div></div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Nombre de la plantilla',true)+'<input id="kat-vname" value="'+h(initialName)+'" style="'+css()+'"></div><div>'+label('Idioma',true)+'<select id="kat-vlang" style="'+css()+'">'+langOptions(mode==='edit' ? (item && item._firstLocale || state.defLang) : state.defLang, mode==='edit' ? actualLocalesOf(item) : [])+'</select></div></div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('Categoría',true)+'<select id="kat-vcat" style="'+css()+'">'+catOptions(5)+'</select></div><div>'+label('Nivel',true)+'<select id="kat-vlev" style="'+css()+'">'+lvlOptions(3)+'</select></div></div>' +
         '<div style="margin-bottom:8px">'+label('Tipo de campaña',true)+'<input id="kat-vctype" value="'+h(initialCampaign)+'" style="'+css()+'"></div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div>'+label('campaignTypeId',false)+'<input id="kat-vtypeid" value="'+h(initialTypeId)+'" readonly style="'+css('background:#f8fafc;color:#64748b')+'"></div><div>'+label('templateId',false)+'<input id="kat-vtplid" value="'+h(initialTplId)+'" readonly style="'+css('background:#f8fafc;color:#64748b')+'"></div></div>' +
