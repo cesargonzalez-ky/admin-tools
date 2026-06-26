@@ -116,7 +116,7 @@
         );
         var all = Array.isArray(json.records) ? json.records : [];
         // Filtrar solo vishing (surveyTypeId=10)
-        state.list = all.filter(function(r){ return r.common && r.common.surveyTypeId === SURVEY_TYPE_ID; });
+        state.list = all.filter(function(r){ return r.common && Number(r.common.surveyTypeId) === SURVEY_TYPE_ID; });
         state.page = 0;
         status(st,'✓ Plantillas cargadas: '+state.list.length,'ok');
         renderRows();
@@ -262,11 +262,11 @@
         var hidEl = document.createElement('input');
         hidEl.type = 'hidden'; hidEl.id = 'kat-vtplcampaignid';
         hidEl.value = initialTemplateCampaignId;
-        container.appendChild(hidEl);
+        (targetEl || container).appendChild(hidEl);
       }
 
       // Rellenar campos si venimos de edición con datos completos
-      if (mode === 'edit' && d.greeting) {
+      if (mode === 'edit') {
         var grEl = $('kat-vgreeting'); if (grEl) grEl.value = d.greeting;
         // Idioma
         var lEl = $('kat-vlang'); if (lEl) lEl.value = d.locale;
@@ -439,10 +439,6 @@
       }
     }
 
-    container.innerHTML='<div style="padding:14px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#64748b">Cargando editor BORRADOR...</div>';
-    tools.loadCompanyData().then(function(data){ var l=(data.environment&&data.environment.languages)||{}; state.langs=(Array.isArray(l.list)&&l.list.length)?l.list.slice():['es-es']; state.defLang=l.default||state.langs[0]||'es-es'; renderList(); }).catch(function(e){ container.innerHTML='<div style="padding:14px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030">Error: '+h(e.message)+'</div>'; });
-  }
-
     function renderMultiLangTabs(item, templates) {
       var activeLoc = state.activeLocale || (templates[0] && templates[0].locale);
 
@@ -468,11 +464,15 @@
         var agent = rec.agent || {};
         var profiles = agent.profiles || [{}];
         var timetable = rec.timetable || {};
-        var eventsStyle = rec.eventsStyle || {};
+        var mapping = rec.mapping || (rec.configuration && rec.configuration.mapping) || {};
+        var eventsStyle = rec.eventsStyle || mapping.eventsStyle || {};
+        var calculus = mapping.calculus || (rec.events ? rec.events.filter(function(e){ return e !== 'CALL_SENT'; }).map(function(ev) {
+          return { event: ev, level: DEF[ev] && DEF[ev].level || 3, condition: null, puntuation: DEF[ev] && DEF[ev].puntuation != null ? DEF[ev].puntuation : 0 };
+        }) : []);
 
         // Construir form data para este idioma
         var d = {
-          name: item.name || '', campaign: item.common && item.common.campaignTypeId || '',
+          name: item.name || '', campaign: item.common && item.common.campaignType || item.campaignType || '',
           typeId: item.common && item.common.campaignTypeId || '',
           tplId: item.id || item.templateId || '',
           templateCampaignId: tpl.templateCampaignId,
@@ -480,20 +480,15 @@
           locale: tpl.locale,
           p1: profiles[0] || {}, p2: profiles[1] || null,
           timetable: timetable,
-          calculus: rec.events ? rec.events.filter(function(e){ return e !== 'CALL_SENT'; }).map(function(ev) {
-            var style = eventsStyle[ev] || {};
-            return { event: ev, level: DEF[ev] && DEF[ev].level || 3, condition: null, puntuation: DEF[ev] && DEF[ev].puntuation != null ? DEF[ev].puntuation : 0, icon: style.icon || 'write.svg', color: style.color || '#FFA500' };
-          }) : [],
-          extraction: rec.mapping && rec.mapping.extraction || {},
+          calculus: calculus,
+          extraction: mapping.extraction || {},
           eventsStyle: eventsStyle,
-          params: rec.mapping && rec.mapping.params || {}
+          params: mapping.params || {}
         };
 
         // Rebuild tabs + form
         container.innerHTML = shell() + buildTabs() + '<div id="kat-vtab-form"></div>';
 
-        // Asignar evento back
-        document.getElementById('kat-vback').onclick = renderList;
 
         // Asignar click en tabs
         container.querySelectorAll('.kat-vtab').forEach(function(btn) {
@@ -528,6 +523,12 @@
 
       renderActiveTab();
     }
+
+    container.innerHTML='<div style="padding:14px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#64748b">Cargando editor BORRADOR...</div>';
+    tools.loadCompanyData().then(function(data){ var l=(data.environment&&data.environment.languages)||{}; state.langs=(Array.isArray(l.list)&&l.list.length)?l.list.slice():['es-es']; state.defLang=l.default||state.langs[0]||'es-es'; renderList(); }).catch(function(e){ container.innerHTML='<div style="padding:14px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030">Error: '+h(e.message)+'</div>'; });
+  }
+
+
 
 
   KAT.registerModule({ key:'vishing_templates_draft', label:'BORRADOR - Plantillas de Vishing', icon:'&#9742;', order:75, forceGuiOnly:true, hideModeSwitch:true, renderGui:renderGui });
