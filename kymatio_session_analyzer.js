@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-11-no-false-positives';
+  var VERSION = 'session-analyzer-13-last-exception-check';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -471,22 +471,55 @@
         }
       });
 
-      // Construir mapa de sucesores: surveyTypeId -> true si existe un nodo en el SF que lo tiene como previous
-      // Esto permite saber si una sesión completada tiene sucesor configurado (aunque sea futuro)
+      // Construir mapa de sucesores centrado en la rama de cyber:
+      // Para cada nodo del surveyFlow, si su 'previous' es una sesión de cyber (familyId 8),
+      // marcar ese surveyTypeId como "tiene sucesor configurado en la rama"
+      // También marcamos el sucesor de sesiones custom que estén en la rama cyber
       if (Array.isArray(sf)) {
+        // Primero construir índice por next
+        var sfByNext = {};
+        sf.forEach(function(node) { if (node.next) sfByNext[node.next.toUpperCase()] = node; });
+
         sf.forEach(function(node) {
           var prev = node.previous;
           if (!prev || typeof prev !== 'string') return;
           var prevCode = prev.toUpperCase();
           var prevInfo = STANDARD_SURVEY_TYPE_MAP[prevCode];
           if (prevInfo && prevInfo.surveyTypeId) {
-            state.surveyTypeHasSuccessor[String(prevInfo.surveyTypeId)] = true;
+            // Marcar si el nodo previo es cyber (familyId 8) o está en la rama
+            // (el sucesor de cyber puede ser no-cyber, pero lo que importa es que
+            //  la sesión cyber tiene un nodo siguiente en el flujo)
+            if (prevInfo.surveyFamilyId === 8 || state.surveyTypeSetInFlow[String(prevInfo.surveyTypeId)]) {
+              state.surveyTypeHasSuccessor[String(prevInfo.surveyTypeId)] = true;
+            }
           }
-          // También puede venir por previousSurveyId (sesiones custom)
+          // Sesiones custom: si previousSurveyId apunta a una sesión que está en el flujo
           if (node.previousSurveyId) {
             state.surveyTypeHasSuccessor['custom_' + String(node.previousSurveyId)] = true;
           }
         });
+
+        // Propagar: si una sesión no-cyber tiene sucesor y está justo antes de cyber,
+        // también marcar la cyber previa como con sucesor
+        // (cubre el caso CYBER032 -> CUSTOM -> CYBER033)
+        var changed = true;
+        var maxIter = sf.length;
+        while (changed && maxIter-- > 0) {
+          changed = false;
+          sf.forEach(function(node) {
+            var nextCode = node.next && node.next.toUpperCase();
+            var nextInfo = nextCode && STANDARD_SURVEY_TYPE_MAP[nextCode];
+            var prevCode2 = node.previous && node.previous.toUpperCase();
+            var prevInfo2 = prevCode2 && STANDARD_SURVEY_TYPE_MAP[prevCode2];
+            if (!prevInfo2 || !nextInfo) return;
+            // Si el sucesor tiene sucesor, el predecesor también tiene sucesor
+            if (state.surveyTypeHasSuccessor[String(nextInfo.surveyTypeId)] &&
+                !state.surveyTypeHasSuccessor[String(prevInfo2.surveyTypeId)]) {
+              state.surveyTypeHasSuccessor[String(prevInfo2.surveyTypeId)] = true;
+              changed = true;
+            }
+          });
+        }
       }
 
       if (state.surveyTypesInFlow.length) {
@@ -676,9 +709,24 @@
             if (last && state.surveyTypeHasSuccessor && state.surveyTypeHasSuccessor[String(last.surveyTypeId || '')]) {
               hasSuccessor = true;
             }
-            // Solo reportar si es realmente un problema
-            var isNoNextProblem = !lastOfFlow && !hasSuccessor;
-            if (isNoNextProblem) {
+            var isEndOfCyberBranch = lastOfFlow;
+            var hasCyberSuccessor = hasSuccessor;
+
+            if (isEndOfCyberBranch) {
+              // Llegó al final de la rama de cyber
+              if (!opts.useSurveyFlowLastException) {
+                // Check desmarcado: reportar con nota informativa, no requiere IT
+                rows.noNext.push(Object.assign({}, base, {
+                  ultimaSesionCompletada: last.surveyName || '',
+                  surveyTypeId: last.surveyTypeId || '',
+                  fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
+                  nota: 'Final de la rama de ciberconcienciacion',
+                  requiereIT: 'No'
+                }));
+              }
+              // Check marcado: no reportar — es el comportamiento esperado
+            } else if (!hasCyberSuccessor) {
+              // No llegó al final pero tampoco tiene sucesor configurado — problema real
               rows.noNext.push(Object.assign({}, base, {
                 ultimaSesionCompletada: last.surveyName || '',
                 surveyTypeId: last.surveyTypeId || '',
@@ -687,14 +735,20 @@
                 requiereIT: 'Si'
               }));
             }
+            // Si hasCyberSuccessor: tiene sesión programada aunque sea futura — no reportar
           } else {
-            rows.noNext.push(Object.assign({}, base, {
-              ultimaSesionCompletada: '',
-              surveyTypeId: '',
-              fecha: '',
-              nota: 'Sin sesiones del surveyFlow',
-              requiereIT: 'Si'
-            }));
+            // Solo reportar si no tienen ninguna sesión de cyber
+            if (cyberRecords.length === 0 && flowRecords.length > 0) {
+              // Tiene sesiones del flujo pero ninguna de cyber — no reportar como problema de cyber
+            } else {
+              rows.noNext.push(Object.assign({}, base, {
+                ultimaSesionCompletada: '',
+                surveyTypeId: '',
+                fecha: '',
+                nota: 'Sin sesiones de ciberconcienciacion en surveyFlow',
+                requiereIT: 'Si'
+              }));
+            }
           }
         }
       }
