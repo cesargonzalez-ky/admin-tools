@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-06-repeatable-skip';
+  var VERSION = 'session-analyzer-07-repeteable-fix';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -375,10 +375,13 @@
       '';
 
     var repeatableCandidates = [
-      x.repeatable, x.isRepeatable, x.is_repeatable,
+      x.repeatable, x.repeteable,  // API usa 'repeteable' (typo)
+      x.isRepeatable, x.is_repeatable,
       x.repeat, x.canRepeat, x.allowRepeat,
       valueByPath(x, ['survey', 'repeatable']),
-      valueByPath(x, ['surveyType', 'repeatable'])
+      valueByPath(x, ['survey', 'repeteable']),
+      valueByPath(x, ['surveyType', 'repeatable']),
+      valueByPath(x, ['surveyType', 'repeteable'])
     ];
     var isRepeatable = false;
     for (var ri = 0; ri < repeatableCandidates.length; ri++) {
@@ -409,6 +412,34 @@
       if (typeof x !== 'object') return;
       if (seenNode.indexOf(x) >= 0) return;
       seenNode.push(x);
+
+      // Formato del surveyFlow de Kymatio: {next: 'KYMATIO_CODE', repeteable: false, ...}
+      if (typeof x.next === 'string' && x.next.indexOf('KYMATIO_') === 0) {
+        var info = (typeof STANDARD_SURVEY_TYPE_MAP !== 'undefined') ? STANDARD_SURVEY_TYPE_MAP[x.next] : null;
+        if (info && info.surveyTypeId) {
+          var key = String(info.surveyTypeId);
+          if (!seenType[key]) {
+            seenType[key] = true;
+            var isRep = (x.repeteable === true || x.repeteable === 1 || x.repeteable === 'true' ||
+                         x.repeatable === true || x.repeatable === 1);
+            out.push({
+              surveyTypeId: info.surveyTypeId,
+              surveyFamilyId: info.surveyFamilyId || null,
+              name: info.name || x.next,
+              repeatable: isRep,
+              source: 'surveyflow-next'
+            });
+          }
+        } else {
+          // Intentar via addSurveyTypeFromCode pero marcar el repeatable
+          addSurveyTypeFromCode(out, seenType, x.next);
+          // Marcar el último añadido como repeatable si aplica
+          if (out.length > 0 && (x.repeteable === true || x.repeatable === true)) {
+            out[out.length - 1].repeatable = true;
+          }
+        }
+        return; // No seguir walking los hijos — evitar duplicados
+      }
 
       pushSurveyType(out, seenType, x);
 
