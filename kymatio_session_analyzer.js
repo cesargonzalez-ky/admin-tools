@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-17-all-fixes';
+  var VERSION = 'session-analyzer-18-all-companies';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -850,6 +850,7 @@
       setStatus('El analisis principal necesita surveyFlow. Activa "Analizar sesiones del surveyFlow" o usa el modo avanzado fuera del surveyFlow.', 'warn');
       state.running = false;
       $('ksa-run').disabled = false;
+      $('ksa-run-all').disabled = false;
       $('ksa-cancel').style.display = 'none';
       return;
     }
@@ -998,6 +999,7 @@
       var sfMsg = state.surveyTypesInFlow.length ? 'SurveyFlow detectado con ' + state.surveyTypesInFlow.length + ' sesiones/tipos.' : 'No se pudo extraer surveyFlow util; el analisis principal quedara como no evaluable.';
       setStatus('Empresa preparada: ' + state.users.length + ' usuarios. ' + sfMsg + ' El analisis principal no se basara solo en surveyFamilyId.', state.surveyTypesInFlow.length ? 'ok' : 'warn');
       $('ksa-run').disabled = false;
+      $('ksa-run-all').disabled = false;
     } catch (e) {
       renderSurveyFlowInfo();
       setStatus('Error inicial: ' + esc(e.message), 'err');
@@ -1014,6 +1016,322 @@
 
   async function init() {
     await prepareCompany();
+  }
+
+
+  // ── Análisis de todas las empresas ───────────────────────────────────────────
+  async function runAllCompanies() {
+    if (state.running) return;
+
+    // Modal de confirmación
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2147483648;display:flex;align-items:center;justify-content:center';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:white;border-radius:14px;padding:28px;max-width:420px;width:90%;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;box-shadow:0 20px 60px rgba(0,0,0,.3)';
+    box.innerHTML =
+      '<div style="font-size:16px;font-weight:800;color:#1a202c;margin-bottom:10px">&#127758; Analizar TODAS las empresas</div>' +
+      '<div style="font-size:13px;color:#475569;line-height:1.6;margin-bottom:20px">' +
+        'Se analizarán <strong>todas las empresas</strong> de la plataforma.<br><br>' +
+        'Política aplicada:<br>' +
+        '&#x2022; Sesiones duplicadas de cyber<br>' +
+        '&#x2022; Usuarios sin siguiente sesión en la rama de cyber<br>' +
+        '&#x2022; Usuarios sin welcome<br><br>' +
+        '<strong>Se ignorarán</strong> las empresas sin surveyFlow o sin welcome detectado en el flujo.<br><br>' +
+        'El proceso puede tardar varios minutos. El resultado se descargará como Excel.' +
+      '</div>' +
+      '<div style="display:flex;gap:10px">' +
+        '<button id="ksa-all-cancel-modal" style="flex:1;padding:10px;border:1px solid #e2e8f0;background:white;color:#475569;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Cancelar</button>' +
+        '<button id="ksa-all-confirm-modal" style="flex:1;padding:10px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">&#9654; Lanzar análisis</button>' +
+      '</div>';
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    document.getElementById('ksa-all-cancel-modal').onclick = function() { overlay.remove(); };
+    document.getElementById('ksa-all-confirm-modal').onclick = async function() {
+      overlay.remove();
+      await doRunAllCompanies();
+    };
+  }
+
+  async function doRunAllCompanies() {
+    state.running = true;
+    state.cancelled = false;
+    $('ksa-run').disabled = true;
+    $('ksa-run-all').disabled = true;
+    $('ksa-cancel').style.display = 'inline-block';
+    $('ksa-results').innerHTML = '';
+    $('ksa-all-progress').style.display = 'block';
+    $('ksa-all-progress-bar').style.width = '0%';
+    setStatus('Cargando listado de empresas...', 'info');
+
+    var opts = {
+      checkSurveyFlow: true,
+      checkDuplicates: true,
+      checkNoNext: true,
+      checkWelcome: true,
+      welcomeFamilyId: 11,
+      useSurveyFlowLastException: true,
+      includeOutsideSurveyFlow: false
+    };
+
+    try {
+      // 1. Obtener todas las empresas
+      var companiesData = await apiGet('/admin/stakeholders/people/48207/companies');
+      var allCompanies = companiesData.records || [];
+      var total = allCompanies.length;
+      setStatus('Empresas cargadas: ' + total + '. Iniciando análisis...', 'info');
+
+      // Resultados globales
+      var allResults = { duplicates: [], noNext: [], noWelcome: [], noSessions: [], errors: [], skipped: 0 };
+      var companiesAnalyzed = 0;
+      var usersAnalyzed = 0;
+      var BATCH_SIZE = 20;
+      var SLEEP_MS = 200;
+
+      for (var ci = 0; ci < allCompanies.length; ci++) {
+        if (state.cancelled) break;
+
+        var company = allCompanies[ci];
+        var cid = company.stakeholderId;
+        var cname = company.name || ('Empresa ' + cid);
+
+        // Actualizar progreso
+        updateAllProgress(ci + 1, total, usersAnalyzed, cname);
+
+        try {
+          // 2. Cargar surveyFlow de la empresa — si no tiene welcome, saltar
+          var compData = await apiGetForCompany(cid);
+          var journey = compData.records && compData.records.journey || {};
+          var sf = journey.surveyflow || journey.surveyFlow || null;
+
+          if (!sf || !Array.isArray(sf)) { allResults.skipped++; continue; }
+
+          // Verificar si tiene welcome en el surveyFlow
+          var hasWelcome = sf.some(function(n) {
+            return n.next && (n.next.toUpperCase() === 'KYMATIO_WELCOME');
+          });
+          if (!hasWelcome) { allResults.skipped++; continue; }
+
+          // 3. Construir surveyTypesInFlow para esta empresa (reutilizar lógica existente)
+          var companyState = buildCompanyState(sf);
+          if (!companyState.surveyTypesInFlow.length) { allResults.skipped++; continue; }
+
+          // 4. Cargar usuarios de la empresa
+          var usersData = await apiGet('/admin/stakeholders/companies/' + encodeURIComponent(cid) + '/people?email=true&login=true');
+          var users = (usersData.records || []).map(normalizeUser).filter(function(u){ return !!u.stakeholderId; });
+          if (!users.length) { allResults.skipped++; continue; }
+
+          // 5. Analizar usuarios en lotes
+          for (var ui = 0; ui < users.length; ui += BATCH_SIZE) {
+            if (state.cancelled) break;
+            var batch = users.slice(ui, ui + BATCH_SIZE);
+            await Promise.all(batch.map(async function(user) {
+              try {
+                var interactions = await fetchInteractions(user);
+                var rows = analyzeUserWithState(user, interactions, opts, companyState, cname, cid);
+                allResults.duplicates = allResults.duplicates.concat(rows.duplicates);
+                allResults.noNext     = allResults.noNext.concat(rows.noNext);
+                allResults.noWelcome  = allResults.noWelcome.concat(rows.noWelcome);
+                allResults.noSessions = allResults.noSessions.concat(rows.noSessions);
+                usersAnalyzed++;
+              } catch(e) {
+                allResults.errors.push({ companyId: cid, companyName: cname, stakeholderId: user.stakeholderId, email: user.email || '', error: e.message });
+              }
+            }));
+            updateAllProgress(ci + 1, total, usersAnalyzed, cname);
+            await sleep(SLEEP_MS);
+          }
+
+          companiesAnalyzed++;
+        } catch(e) {
+          allResults.errors.push({ companyId: cid, companyName: cname, stakeholderId: '', email: '', error: e.message });
+        }
+      }
+
+      // 6. Generar Excel
+      setStatus('Generando Excel...', 'info');
+      await loadXlsx();
+      exportAllCompaniesExcel(allResults, companiesAnalyzed, allCompanies.length, usersAnalyzed);
+      setStatus(
+        (state.cancelled ? 'Cancelado. ' : '') +
+        'Análisis completado: ' + companiesAnalyzed + ' empresas, ' + usersAnalyzed + ' usuarios. ' +
+        'Omitidas: ' + allResults.skipped + '.',
+        state.cancelled ? 'warn' : 'ok'
+      );
+
+    } catch(e) {
+      setStatus('Error: ' + esc(e.message), 'err');
+    }
+
+    state.running = false;
+    $('ksa-run').disabled = false;
+    $('ksa-run-all').disabled = false;
+    $('ksa-cancel').style.display = 'none';
+    $('ksa-all-progress').style.display = 'none';
+  }
+
+  function updateAllProgress(companiesDone, companiesTotal, usersDone, currentCompany) {
+    var pct = Math.round(companiesDone / companiesTotal * 100);
+    setStatus(
+      '&#9654; Empresa ' + companiesDone + ' / ' + companiesTotal +
+      ' (' + pct + '%) &mdash; ' + esc(currentCompany) +
+      '<br>Usuarios analizados: ' + usersDone,
+      'info'
+    );
+    // Barra de progreso en el DOM
+    var bar = $('ksa-all-progress-bar');
+    if (bar) bar.style.width = pct + '%';
+  }
+
+  async function apiGetForCompany(cid) {
+    return apiGet('/admin/stakeholders/companies/' + encodeURIComponent(cid) + '?environment=true&journey=true&services=true');
+  }
+
+  function buildCompanyState(sf) {
+    // Construye un estado mínimo de surveyFlow para una empresa
+    var tempState = {
+      surveyFlow: sf,
+      surveyTypesInFlow: [],
+      surveyTypeSetInFlow: {},
+      repeatableSurveyTypeSet: {},
+      surveyTypeHasSuccessor: {},
+      familiesInFlow: [],
+      lastSurveyTypeIdInFlow: null,
+      lastCyberSurveyTypeIdInFlow: null
+    };
+
+    tempState.surveyTypesInFlow = collectSurveyTypes(sf);
+    tempState.surveyTypesInFlow.forEach(function(s) {
+      tempState.surveyTypeSetInFlow[String(s.surveyTypeId)] = true;
+      if (s.repeatable) tempState.repeatableSurveyTypeSet[String(s.surveyTypeId)] = true;
+      if (s.surveyFamilyId && tempState.familiesInFlow.indexOf(s.surveyFamilyId) < 0) {
+        tempState.familiesInFlow.push(s.surveyFamilyId);
+      }
+    });
+
+    // Sucesores
+    sf.forEach(function(node) {
+      var prev = node.previous;
+      if (!prev || typeof prev !== 'string') return;
+      var prevInfo = STANDARD_SURVEY_TYPE_MAP[prev.toUpperCase()];
+      if (prevInfo && prevInfo.surveyTypeId) {
+        if (prevInfo.surveyFamilyId === 8 || tempState.surveyTypeSetInFlow[String(prevInfo.surveyTypeId)]) {
+          tempState.surveyTypeHasSuccessor[String(prevInfo.surveyTypeId)] = true;
+        }
+      }
+    });
+
+    // Última sesión
+    if (tempState.surveyTypesInFlow.length) {
+      var last = tempState.surveyTypesInFlow[tempState.surveyTypesInFlow.length - 1];
+      tempState.lastSurveyTypeIdInFlow = last.surveyTypeId;
+    }
+
+    // Última cyber
+    var cyberInFlow = tempState.surveyTypesInFlow.filter(function(s){ return s.surveyFamilyId === 8; });
+    if (cyberInFlow.length) {
+      var lastCyber = null;
+      for (var ci = cyberInFlow.length - 1; ci >= 0; ci--) {
+        if (!tempState.surveyTypeHasSuccessor[String(cyberInFlow[ci].surveyTypeId)]) {
+          lastCyber = cyberInFlow[ci]; break;
+        }
+      }
+      if (!lastCyber) lastCyber = cyberInFlow[cyberInFlow.length - 1];
+      tempState.lastCyberSurveyTypeIdInFlow = lastCyber.surveyTypeId;
+    }
+
+    return tempState;
+  }
+
+  function analyzeUserWithState(user, records, opts, compState, companyName, companyId) {
+    // Igual que analyzeUser pero usando compState en lugar del state global
+    // y añadiendo companyName/companyId al resultado
+    var savedState = {
+      surveyTypesInFlow: state.surveyTypesInFlow,
+      surveyTypeSetInFlow: state.surveyTypeSetInFlow,
+      repeatableSurveyTypeSet: state.repeatableSurveyTypeSet,
+      surveyTypeHasSuccessor: state.surveyTypeHasSuccessor,
+      familiesInFlow: state.familiesInFlow,
+      lastSurveyTypeIdInFlow: state.lastSurveyTypeIdInFlow,
+      lastCyberSurveyTypeIdInFlow: state.lastCyberSurveyTypeIdInFlow
+    };
+
+    // Aplicar estado de la empresa
+    state.surveyTypesInFlow = compState.surveyTypesInFlow;
+    state.surveyTypeSetInFlow = compState.surveyTypeSetInFlow;
+    state.repeatableSurveyTypeSet = compState.repeatableSurveyTypeSet;
+    state.surveyTypeHasSuccessor = compState.surveyTypeHasSuccessor;
+    state.familiesInFlow = compState.familiesInFlow;
+    state.lastSurveyTypeIdInFlow = compState.lastSurveyTypeIdInFlow;
+    state.lastCyberSurveyTypeIdInFlow = compState.lastCyberSurveyTypeIdInFlow;
+
+    var rows = analyzeUser(user, records, opts);
+
+    // Restaurar estado global
+    state.surveyTypesInFlow = savedState.surveyTypesInFlow;
+    state.surveyTypeSetInFlow = savedState.surveyTypeSetInFlow;
+    state.repeatableSurveyTypeSet = savedState.repeatableSurveyTypeSet;
+    state.surveyTypeHasSuccessor = savedState.surveyTypeHasSuccessor;
+    state.familiesInFlow = savedState.familiesInFlow;
+    state.lastSurveyTypeIdInFlow = savedState.lastSurveyTypeIdInFlow;
+    state.lastCyberSurveyTypeIdInFlow = savedState.lastCyberSurveyTypeIdInFlow;
+
+    // Añadir companyName y companyId a cada fila
+    ['duplicates','noNext','noWelcome','noSessions'].forEach(function(key) {
+      rows[key].forEach(function(row) {
+        row.companyId = companyId;
+        row.companyName = companyName;
+      });
+    });
+
+    return rows;
+  }
+
+  async function loadXlsx() {
+    if (window.XLSX) return;
+    return new Promise(function(resolve, reject) {
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  function exportAllCompaniesExcel(results, companiesAnalyzed, companiesTotal, usersAnalyzed) {
+    var wb = window.XLSX.utils.book_new();
+
+    // Resumen
+    var summaryRows = [
+      ['Campo', 'Valor'],
+      ['Fecha análisis', new Date().toISOString()],
+      ['Empresas analizadas', companiesAnalyzed],
+      ['Empresas totales', companiesTotal],
+      ['Empresas omitidas (sin SF/welcome)', companiesTotal - companiesAnalyzed - results.skipped],
+      ['Usuarios analizados', usersAnalyzed],
+      ['Sesiones duplicadas', results.duplicates.length],
+      ['Sin siguiente sesión', results.noNext.length],
+      ['Sin welcome', results.noWelcome.length],
+      ['Sin ninguna sesión', results.noSessions.length],
+      ['Errores', results.errors.length]
+    ];
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(summaryRows), 'Resumen');
+
+    // Función para añadir columnas de company al inicio
+    function addCompanyCols(rows) {
+      if (!rows.length) return rows;
+      return rows.map(function(r) {
+        return Object.assign({ companyId: r.companyId, companyName: r.companyName }, r);
+      });
+    }
+
+    window.XLSX.utils.book_append_sheet(wb, jsonToSheet(addCompanyCols(results.duplicates)), 'Sesiones Duplicadas');
+    window.XLSX.utils.book_append_sheet(wb, jsonToSheet(addCompanyCols(results.noNext)), 'Sin Siguiente Sesion');
+    window.XLSX.utils.book_append_sheet(wb, jsonToSheet(addCompanyCols(results.noWelcome)), 'Sin Welcome');
+    window.XLSX.utils.book_append_sheet(wb, jsonToSheet(addCompanyCols(results.noSessions)), 'Sin Ninguna Sesion');
+    window.XLSX.utils.book_append_sheet(wb, jsonToSheet(results.errors), 'Errores');
+
+    var fname = 'kymatio_session_analyzer_TODAS_EMPRESAS_' + new Date().toISOString().slice(0,10) + '.xlsx';
+    window.XLSX.writeFile(wb, fname);
   }
 
   function createPanel() {
@@ -1053,10 +1371,10 @@
           '<button id="ksa-run" disabled style="flex:1;background:#1e293b;color:white;border:none;border-radius:8px;padding:10px;font-weight:800;cursor:pointer;opacity:.9">Lanzar analisis</button>' +
           '<button id="ksa-cancel" style="display:none;background:white;border:1px solid #e2e8f0;color:#475569;border-radius:8px;padding:10px;font-weight:700;cursor:pointer">Cancelar</button>' +
         '</div>' +
-        '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;color:#92400e;font-size:12px;line-height:1.45;margin-bottom:12px">' +
-          '<strong>Analizar todas las empresas:</strong> reservado para la siguiente fase. Politica propuesta: surveyFlow como fuente principal, welcome aparte y fuera del surveyFlow desactivado por defecto.' +
-        '</div>' +
-        '<div id="ksa-results"></div>' +
+        '<div style="border-top:2px solid #e2e8f0;margin:4px 0 12px"></div>' +
+        '<button id="ksa-run-all" disabled style="width:100%;background:#7c3aed;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer;margin-bottom:6px">&#127758; Analizar TODAS las empresas</button>' +
+        '<div style="font-size:11px;color:#64748b;text-align:center;margin-bottom:12px">Pol\u00edtica: duplicados + sin siguiente sesi\u00f3n de cyber + sin welcome. Solo empresas con surveyFlow y welcome detectado.</div>' +
+        '<div id="ksa-all-progress" style="display:none;margin-bottom:10px">' +'<div style="background:#e2e8f0;border-radius:999px;height:6px;overflow:hidden">' +'<div id="ksa-all-progress-bar" style="height:100%;background:#7c3aed;width:0%;transition:width .3s"></div>' +'</div></div>' +'<div id="ksa-results"></div>' +
       '</div>';
 
     document.body.appendChild(div);
@@ -1064,6 +1382,7 @@
     $('ksa-cancel').onclick = function () { state.cancelled = true; setStatus('Cancelando al terminar el lote actual...', 'warn'); };
     $('ksa-run').onclick = runAnalysis;
     $('ksa-refresh-company').onclick = refreshCompany;
+    $('ksa-run-all').onclick = runAllCompanies;
     init();
   }
 
