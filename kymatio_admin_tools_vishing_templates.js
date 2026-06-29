@@ -6,7 +6,7 @@
 
   var SURVEY_TYPE_ID = 10;
   var AGENT_ID = 151;
-  var MODULE_VERSION = 'vishing-17-block-save-no-extraction-2026-06-30';
+  var MODULE_VERSION = 'vishing-18-fix-scope-saveLocalCache-2026-06-30';
 
   var LANG_NAMES = { 'es-es':'Español','es-mx':'Español (Latam)','en-us':'Inglés','eu':'Euskera','pl':'Polaco','cat':'Catalán','pt-pt':'Portugués (Portugal)','pt-br':'Portugués (Brasil)','sv':'Sueco','fr':'Francés','it':'Italiano','de':'Alemán' };
   var CATEGORIES = [
@@ -444,6 +444,32 @@
       out.configuration.params = Object.assign({}, out.configuration.params || {}, { locale: locale });
       return out;
     }
+    async     function saveCurrentLocaleToCache(loc) {
+      if(!loc) return;
+      var extraction = {};
+      for(var i=1;i<=4;i++){
+        var evEl = $('kat-vevent'+i);
+        var extEl = $('kat-vext'+i);
+        if(evEl && evEl.value && extEl && extEl.value) {
+          extraction[evEl.value] = extEl.value;
+        }
+      }
+      var calculus = [];
+      for(var j=1;j<=4;j++){
+        var evEl2=$('kat-vevent'+j);
+        if(evEl2 && evEl2.value) {
+          calculus.push({
+            event: evEl2.value,
+            level: parseInt(($('kat-vlvl'+j) && $('kat-vlvl'+j).value) || '3', 10),
+            condition: (val('kat-vcond'+j)==='null'?null:val('kat-vcond'+j)||null),
+            puntuation: parseFloat(val('kat-vpunt'+j)||'0')
+          });
+        }
+      }
+      if(!state.localeCache) state.localeCache = {};
+      state.localeCache[loc] = { extraction: extraction, calculus: calculus };
+    }
+
     async function hydrateEditForm(item, locale){
       var st=$('kat-vformstatus');
       var tplid=templateIdOf(item);
@@ -628,5 +654,5 @@
     tools.loadCompanyData().then(function(data){ var l=(data.environment&&data.environment.languages)||{}; state.langs=(Array.isArray(l.list)&&l.list.length)?l.list.slice():['es-es']; state.defLang=l.default||state.langs[0]||'es-es'; renderList(); }).catch(function(e){ container.innerHTML='<div style="padding:14px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030">Error: '+h(e.message)+'</div>'; });
   }
 
-  KAT.registerModule({ key:'vishing_templates_draft', label:'BORRADOR - Vishing v17', icon:'&#9742;', order:75, renderGui:renderGui });
+  KAT.registerModule({ key:'vishing_templates_draft', label:'BORRADOR - Vishing v18', icon:'&#9742;', order:75, renderGui:renderGui });
 })();
