@@ -33,7 +33,7 @@
   var DAYS = [['Monday','Lunes'],['Tuesday','Martes'],['Wednesday','Miércoles'],['Thursday','Jueves'],['Friday','Viernes'],['Saturday','Sábado'],['Sunday','Domingo']];
 
   function renderGui(container, tools) {
-    var state = { langs:['es-es'], defLang:'es-es', list:[], page:0, dirty:false, currentEditItem:null, currentEditLocale:null, currentLoadComplete:false, currentLoadPartial:false };
+    var state = { langs:['es-es'], defLang:'es-es', list:[], page:0, dirty:false, currentEditItem:null, currentEditLocale:null, currentLoadComplete:false, currentLoadPartial:false, localeCache:{} };
     var $ = tools.$;
     var esc = tools.escHtml;
     var status = tools.setStatus;
@@ -383,6 +383,17 @@
       }
       var calculus = Array.isArray(mapping.calculus) ? mapping.calculus : [];
       var events = calculus.length ? calculus.filter(function(c){ return c && c.event !== 'CALL_SENT'; }) : (rec.events || []).filter(function(ev){ return ev !== 'CALL_SENT'; }).map(function(ev){ var d=DEF[ev]||{}; return { event:ev, level:d.level||3, condition:d.condition==null?null:d.condition, puntuation:d.puntuation!=null?d.puntuation:0 }; });
+      // Si la extracción viene vacía pero hay cache para este locale, usarla
+      var cachedData = state.localeCache && state.localeCache[locale];
+      if(cachedData && cachedData.extraction && Object.keys(cachedData.extraction).length > 0 &&
+         (!mapping.extraction || Object.keys(mapping.extraction).length === 0)) {
+        mapping = Object.assign({}, mapping, { extraction: cachedData.extraction });
+        if(cachedData.calculus && cachedData.calculus.length > 0) {
+          mapping.calculus = cachedData.calculus;
+        }
+      }
+      events = Array.isArray(mapping.calculus) ? mapping.calculus.filter(function(c){ return c && c.event !== 'CALL_SENT'; }) : events;
+
       events.slice(0,4).forEach(function(ev, idx){
         var n=idx+1;
         setIf('kat-vevent'+n, ev.event);
@@ -437,6 +448,12 @@
       var st=$('kat-vformstatus');
       var tplid=templateIdOf(item);
       var loc=locale || state.currentEditLocale || item._firstLocale || actualLocalesOf(item)[0] || state.defLang;
+
+      // Guardar datos del idioma actual antes de cambiar
+      if(state.currentEditLocale && state.currentEditLocale !== loc) {
+        saveCurrentLocaleToCache(state.currentEditLocale);
+      }
+
       state.currentEditItem=item;
       state.currentEditLocale=loc;
       renderEditLanguageTools(item);
@@ -508,7 +525,34 @@
       $('kat-vback').onclick=renderList; ['kat-vname','kat-vcat','kat-vlev'].forEach(function(id){ $(id).oninput=function(){ syncCampaign(false); }; $(id).onchange=function(){ syncCampaign(false); }; }); $('kat-vctype').oninput=function(){ state.dirty=true; }; if(mode==='create') syncCampaign(true);
       [1,2,3,4].forEach(function(i){ $('kat-vevent'+i).onchange=function(){ setEventDefault(i); }; });
       if(mode!=='edit') setFormReadonly(false);
-      if(mode==='edit') hydrateEditForm(item, item && item._firstLocale);
+      if(mode==='edit') {
+        // Precargar todos los idiomas en paralelo para tener la extracción cacheada
+        var allLocales = item && item.locales || [item && item._firstLocale || state.defLang];
+        var tplid = templateIdOf(item);
+        var token = localStorage.getItem('token');
+        if(tplid && allLocales.length > 1) {
+          Promise.all(allLocales.map(function(loc) {
+            return fetch('https://api.kymatio.com/v2/admin/mgm/campaigns/templates/'+encodeURIComponent(tplid)+'?locale='+encodeURIComponent(loc), {
+              headers:{'Content-Type':'application/json','Authorization':'Bearer '+token}
+            }).then(function(r){ return r.json(); }).then(function(j) {
+              var rec = j && j.records;
+              var cfg = rec && rec.configuration;
+              var mapping = cfg && cfg.mapping;
+              if(!mapping) return;
+              var extraction = mapping.extraction || {};
+              var calculus = mapping.calculus || [];
+              // Solo cachear si la extracción corresponde al locale pedido
+              // (admin/mgm puede devolver otro locale — verificar)
+              var adminLocale = cfg && cfg.params && cfg.params.locale;
+              if(String(adminLocale) === String(loc)) {
+                if(!state.localeCache) state.localeCache = {};
+                state.localeCache[loc] = { extraction: extraction, calculus: calculus };
+              }
+            }).catch(function(){});
+          }));
+        }
+        hydrateEditForm(item, item && item._firstLocale);
+      }
       $('kat-vjson').onclick=function(){ try{ var f=collect(); var prev={armazon:mode==='create'?skeleton(f):'(no se modifica el armazón en este borrador salvo creación)',contenido:template(Object.assign({},f,{campaignTypeId:f.campaignTypeId||0}))}; $('kat-vpreview').style.display='block'; $('kat-vpreview').textContent=JSON.stringify(prev,null,2); }catch(e){ status($('kat-vformstatus'),'✗ '+h(e.message),'err'); } };
       $('kat-vsave').onclick=function(){ save(mode).catch(function(e){ status($('kat-vformstatus'),'✗ '+h(e.message),'err'); }); };
     }
