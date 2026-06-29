@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-10-has-successor';
+  var VERSION = 'session-analyzer-11-no-false-positives';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -611,7 +611,7 @@
 
     if (!all.length) {
       rows.noSessions.push(Object.assign({}, base));
-      rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: 'Sin welcome en absoluto', problema: 'Si' }));
+      rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: 'Sin welcome en absoluto' }));
       return rows;
     }
 
@@ -676,22 +676,23 @@
             if (last && state.surveyTypeHasSuccessor && state.surveyTypeHasSuccessor[String(last.surveyTypeId || '')]) {
               hasSuccessor = true;
             }
-            rows.noNext.push(Object.assign({}, base, {
-              ultimaSesionCompletada: last.surveyName || '',
-              surveyTypeId: last.surveyTypeId || '',
-              fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
-              nota: lastOfFlow ? 'Ultima sesion del surveyFlow' :
-                    hasSuccessor ? 'Siguiente sesion pendiente de fecha' : 'Sin siguiente sesion en surveyFlow',
-              problema: (lastOfFlow || hasSuccessor) ? 'No' : 'Si',
-              requiereIT: (lastOfFlow || hasSuccessor) ? 'No' : 'Si'
-            }));
+            // Solo reportar si es realmente un problema
+            var isNoNextProblem = !lastOfFlow && !hasSuccessor;
+            if (isNoNextProblem) {
+              rows.noNext.push(Object.assign({}, base, {
+                ultimaSesionCompletada: last.surveyName || '',
+                surveyTypeId: last.surveyTypeId || '',
+                fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
+                nota: 'Sin siguiente sesion en surveyFlow',
+                requiereIT: 'Si'
+              }));
+            }
           } else {
             rows.noNext.push(Object.assign({}, base, {
               ultimaSesionCompletada: '',
               surveyTypeId: '',
               fecha: '',
               nota: 'Sin sesiones del surveyFlow',
-              problema: 'Si',
               requiereIT: 'Si'
             }));
           }
@@ -703,12 +704,12 @@
       var welcomes = all.filter(function (r) { return Number(r.surveyFamilyId) === opts.welcomeFamilyId || Number(r.surveyTypeId) === 29; });
       var hasFlowSession = flowRecords.length > 0;
       if (!welcomes.length) {
-        rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: 'Sin welcome en absoluto', problema: 'Si' }));
+        rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: 'Sin welcome en absoluto' }));
       } else {
         var states = welcomes.map(function (w) { return w.surveyStatus; }).filter(Boolean).join(', ');
         var hasFinish = welcomes.some(function (w) { return w.surveyStatus === 'FINISH'; });
         if (hasFinish && !hasFlowSession && (state.surveyTypesInFlow.length || opts.includeOutsideSurveyFlow)) {
-          rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: states || 'FINISH', problema: 'Si', nota: 'Welcome completada pero sin sesiones del surveyFlow' }));
+          rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: states || 'FINISH', nota: 'Welcome completada pero sin sesiones del surveyFlow' }));
         }
       }
     }
