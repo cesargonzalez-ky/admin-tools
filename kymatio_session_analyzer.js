@@ -1,24 +1,35 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-01-single-company-safe';
+  var VERSION = 'session-analyzer-03-surveyflow-driven';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
 
   var FAMILY_NAMES = {
+    1: 'Informacion y funciones',
     8: 'Ciberconcienciacion',
-    11: 'Welcome / Bienvenida'
+    11: 'Welcome / Bienvenida',
+    13: 'Ingenieria social / Phishing',
+    15: 'Pwned',
+    18: 'Gamificacion'
+  };
+
+  // Sesiones tecnicas/sistema que pueden quedar en PROGRESS de forma permanente.
+  // Desde v03 solo se ignoran si NO forman parte del surveyFlow real de la empresa.
+  var SYSTEM_SURVEY_TYPE_IDS = {
+    133: true
   };
 
   var DEFAULT_POLICY = {
-    name: 'Estandar segura',
-    families: [8],
+    name: 'SurveyFlow principal',
+    checkSurveyFlow: true,
     checkDuplicates: true,
     checkNoNext: true,
     checkWelcome: true,
     welcomeFamilyId: 11,
-    useSurveyFlowLastException: true
+    useSurveyFlowLastException: true,
+    includeOutsideSurveyFlow: false
   };
 
   var state = {
@@ -27,8 +38,10 @@
     users: [],
     surveyFlow: null,
     surveyTypesInFlow: [],
-    families: [],
-    lastByFamily: {},
+    surveyTypeSetInFlow: {},
+    familiesInFlow: [],
+    lastSurveyTypeIdInFlow: null,
+    lastSurveyNameInFlow: '',
     results: null,
     running: false,
     cancelled: false
@@ -42,6 +55,12 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function decodeHtml(v) {
+    var t = document.createElement('textarea');
+    t.innerHTML = String(v == null ? '' : v);
+    return t.value;
   }
 
   function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
@@ -135,8 +154,20 @@
     throw new Error('No se han podido cargar usuarios. Entra en Operador > Usuarios y vuelve a lanzar el bookmarklet. Ultimo error: ' + (lastErr && lastErr.message || 'sin datos'));
   }
 
+  function pushSurveyType(out, seen, x) {
+    var typeId = Number(x.surveyTypeId || x.typeId || x.campaignTypeId || 0);
+    if (!typeId) return;
+    var familyId = Number(x.surveyFamilyId || x.familyId || x.surveyFamily || 0);
+    var name = x.surveyName || x.name || x.title || x.label || x.campaignType || x.campaignTypeName || '';
+    var key = String(typeId);
+    if (seen[key]) return;
+    seen[key] = true;
+    out.push({ surveyTypeId: typeId, surveyFamilyId: familyId || null, name: decodeHtml(name || '') });
+  }
+
   function collectSurveyTypes(obj) {
     var out = [];
+    var seenType = {};
     var seenNode = [];
 
     function walk(x) {
@@ -144,13 +175,7 @@
       if (seenNode.indexOf(x) >= 0) return;
       seenNode.push(x);
 
-      var typeId = Number(x.surveyTypeId || x.typeId || x.campaignTypeId || 0);
-      var familyId = Number(x.surveyFamilyId || x.familyId || 0);
-      var name = x.surveyName || x.name || x.title || x.label || x.campaignType || '';
-
-      if (typeId) {
-        out.push({ surveyTypeId: typeId, surveyFamilyId: familyId || null, name: String(name || '') });
-      }
+      pushSurveyType(out, seenType, x);
 
       Object.keys(x).forEach(function (k) { walk(x[k]); });
     }
@@ -162,7 +187,10 @@
   async function loadSurveyFlow() {
     state.surveyFlow = null;
     state.surveyTypesInFlow = [];
-    state.lastByFamily = {};
+    state.surveyTypeSetInFlow = {};
+    state.familiesInFlow = [];
+    state.lastSurveyTypeIdInFlow = null;
+    state.lastSurveyNameInFlow = '';
 
     try {
       var data = await apiGet('/admin/stakeholders/companies/' + encodeURIComponent(state.companyId) + '?environment=true&journey=true&services=true');
@@ -172,26 +200,40 @@
       state.surveyFlow = sf;
       state.surveyTypesInFlow = collectSurveyTypes(sf || journey);
 
-      var last = {};
       state.surveyTypesInFlow.forEach(function (s) {
-        if (s.surveyFamilyId) last[String(s.surveyFamilyId)] = s.surveyTypeId;
+        state.surveyTypeSetInFlow[String(s.surveyTypeId)] = true;
+        if (s.surveyFamilyId && state.familiesInFlow.indexOf(s.surveyFamilyId) < 0) {
+          state.familiesInFlow.push(s.surveyFamilyId);
+        }
       });
-      state.lastByFamily = last;
+
+      if (state.surveyTypesInFlow.length) {
+        var last = state.surveyTypesInFlow[state.surveyTypesInFlow.length - 1];
+        state.lastSurveyTypeIdInFlow = last.surveyTypeId;
+        state.lastSurveyNameInFlow = last.name || '';
+      }
+
+      state.familiesInFlow.sort(function (a, b) { return a - b; });
     } catch (e) {
       state.surveyFlow = null;
       state.surveyTypesInFlow = [];
-      state.lastByFamily = {};
+      state.surveyTypeSetInFlow = {};
+      state.familiesInFlow = [];
+      state.lastSurveyTypeIdInFlow = null;
+      state.lastSurveyNameInFlow = '';
     }
-
-    var fams = {};
-    state.surveyTypesInFlow.forEach(function (s) { if (s.surveyFamilyId) fams[String(s.surveyFamilyId)] = true; });
-    fams['8'] = true;
-    fams['11'] = true;
-    state.families = Object.keys(fams).map(Number).sort(function (a, b) { return a - b; });
   }
 
   function familyLabel(id) {
     return (FAMILY_NAMES[id] || ('Familia ' + id)) + ' (' + id + ')';
+  }
+
+  function isInSurveyFlow(record) {
+    return !!(record && state.surveyTypeSetInFlow[String(Number(record.surveyTypeId))]);
+  }
+
+  function isSystemSession(record) {
+    return !!(record && SYSTEM_SURVEY_TYPE_IDS[Number(record.surveyTypeId)] && !isInSurveyFlow(record));
   }
 
   function dateValue(v) {
@@ -238,6 +280,21 @@
     return del.map(function (d) { return { keep: keep, remove: d, requiresIt: requiresIt || d.surveyStatus !== 'FINISH' }; });
   }
 
+  function getFlowRecords(all, opts) {
+    var records = all.filter(function (r) { return isInSurveyFlow(r); });
+
+    if (opts.includeOutsideSurveyFlow) {
+      all.forEach(function (r) {
+        if (isInSurveyFlow(r)) return;
+        if (isSystemSession(r)) return;
+        if (Number(r.surveyFamilyId) === opts.welcomeFamilyId) return;
+        records.push(r);
+      });
+    }
+
+    return records;
+  }
+
   function analyzeUser(user, records, opts) {
     var base = getUserDisplay(user);
     var rows = { duplicates: [], noNext: [], noWelcome: [], noSessions: [] };
@@ -249,11 +306,11 @@
       return rows;
     }
 
-    var selected = all.filter(function (r) { return opts.families.indexOf(Number(r.surveyFamilyId)) >= 0; });
+    var flowRecords = getFlowRecords(all, opts);
 
     if (opts.checkDuplicates) {
       var byType = {};
-      selected.forEach(function (r) {
+      flowRecords.forEach(function (r) {
         var k = String(r.surveyTypeId || '');
         if (!k) return;
         if (!byType[k]) byType[k] = [];
@@ -264,8 +321,10 @@
         if (byType[k].length <= 1) return;
         chooseDuplicateActions(byType[k]).forEach(function (a) {
           rows.duplicates.push(Object.assign({}, base, {
+            ambito: opts.includeOutsideSurveyFlow && !isInSurveyFlow(a.remove) ? 'Fuera surveyFlow' : 'SurveyFlow',
             sesion: a.remove.surveyName || a.keep.surveyName || '',
             surveyTypeId: a.remove.surveyTypeId || a.keep.surveyTypeId || '',
+            surveyFamilyId: a.remove.surveyFamilyId || a.keep.surveyFamilyId || '',
             surveyEntityIdEliminar: a.remove.surveyEntityId || '',
             estadoEliminar: a.remove.surveyStatus || '',
             surveyEntityIdConservar: a.keep && a.keep.surveyEntityId || '',
@@ -277,37 +336,59 @@
     }
 
     if (opts.checkNoNext) {
-      var pending = selected.some(function (r) { return ['AVAILABLE', 'PROGRESS', 'UNAVAILABLE'].indexOf(r.surveyStatus) >= 0; });
-      var finished = selected.filter(function (r) { return r.surveyStatus === 'FINISH'; });
-
-      if (!pending && finished.length) {
-        finished.sort(function (a, b) { return dateValue(b.questionDate || b.dateStatus || b.userStartDate) - dateValue(a.questionDate || a.dateStatus || a.userStartDate); });
-        var last = finished[0];
-        var lastOfFlow = false;
-        if (opts.useSurveyFlowLastException && last && last.surveyFamilyId) {
-          lastOfFlow = String(state.lastByFamily[String(last.surveyFamilyId)] || '') === String(last.surveyTypeId || '');
-        }
+      if (!state.surveyTypesInFlow.length && !opts.includeOutsideSurveyFlow) {
         rows.noNext.push(Object.assign({}, base, {
-          ultimaSesionCompletada: last.surveyName || '',
-          surveyTypeId: last.surveyTypeId || '',
-          fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
-          nota: lastOfFlow ? 'Ultima sesion del surveyFlow' : 'Sin siguiente sesion',
-          problema: lastOfFlow ? 'No' : 'Si',
-          requiereIT: lastOfFlow ? 'No' : 'Si'
+          ultimaSesionCompletada: '',
+          surveyTypeId: '',
+          fecha: '',
+          nota: 'No evaluable: surveyFlow no disponible',
+          problema: 'No',
+          requiereIT: 'No'
         }));
+      } else {
+        var pending = flowRecords.some(function (r) { return ['AVAILABLE', 'PROGRESS', 'UNAVAILABLE'].indexOf(r.surveyStatus) >= 0; });
+        var finished = flowRecords.filter(function (r) { return r.surveyStatus === 'FINISH'; });
+
+        if (!pending) {
+          if (finished.length) {
+            finished.sort(function (a, b) { return dateValue(b.questionDate || b.dateStatus || b.userStartDate) - dateValue(a.questionDate || a.dateStatus || a.userStartDate); });
+            var last = finished[0];
+            var lastOfFlow = false;
+            if (opts.useSurveyFlowLastException && last) {
+              lastOfFlow = String(state.lastSurveyTypeIdInFlow || '') === String(last.surveyTypeId || '');
+            }
+            rows.noNext.push(Object.assign({}, base, {
+              ultimaSesionCompletada: last.surveyName || '',
+              surveyTypeId: last.surveyTypeId || '',
+              fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
+              nota: lastOfFlow ? 'Ultima sesion del surveyFlow' : 'Sin siguiente sesion en surveyFlow',
+              problema: lastOfFlow ? 'No' : 'Si',
+              requiereIT: lastOfFlow ? 'No' : 'Si'
+            }));
+          } else {
+            rows.noNext.push(Object.assign({}, base, {
+              ultimaSesionCompletada: '',
+              surveyTypeId: '',
+              fecha: '',
+              nota: 'Sin sesiones del surveyFlow',
+              problema: 'Si',
+              requiereIT: 'Si'
+            }));
+          }
+        }
       }
     }
 
     if (opts.checkWelcome) {
       var welcomes = all.filter(function (r) { return Number(r.surveyFamilyId) === opts.welcomeFamilyId; });
-      var cyber = all.filter(function (r) { return Number(r.surveyFamilyId) === 8; });
+      var hasFlowSession = flowRecords.length > 0;
       if (!welcomes.length) {
         rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: 'Sin welcome en absoluto', problema: 'Si' }));
       } else {
         var states = welcomes.map(function (w) { return w.surveyStatus; }).filter(Boolean).join(', ');
         var hasFinish = welcomes.some(function (w) { return w.surveyStatus === 'FINISH'; });
-        if (hasFinish && !cyber.length) {
-          rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: states || 'FINISH', problema: 'Si', nota: 'Welcome completada pero sin ciber' }));
+        if (hasFinish && !hasFlowSession) {
+          rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: states || 'FINISH', problema: 'Si', nota: 'Welcome completada pero sin sesiones del surveyFlow' }));
         }
       }
     }
@@ -321,18 +402,14 @@
   }
 
   function getSelectedOptions() {
-    var fams = [];
-    document.querySelectorAll('.ksa-family-check').forEach(function (cb) {
-      if (cb.checked) fams.push(Number(cb.value));
-    });
-    if (!fams.length) fams = DEFAULT_POLICY.families.slice();
     return {
-      families: fams,
+      checkSurveyFlow: $('ksa-check-surveyflow').checked,
       checkDuplicates: $('ksa-check-duplicates').checked,
       checkNoNext: $('ksa-check-nonext').checked,
       checkWelcome: $('ksa-check-welcome').checked,
       welcomeFamilyId: 11,
-      useSurveyFlowLastException: $('ksa-check-lastflow').checked
+      useSurveyFlowLastException: $('ksa-check-lastflow').checked,
+      includeOutsideSurveyFlow: $('ksa-check-outside').checked
     };
   }
 
@@ -360,7 +437,7 @@
     var r = state.results;
     if (!r) return;
     var noNextProblem = r.noNext.filter(function (x) { return x.problema === 'Si'; }).length;
-    var noNextLast = r.noNext.filter(function (x) { return x.problema === 'No'; }).length;
+    var noNextOk = r.noNext.filter(function (x) { return x.problema === 'No'; }).length;
     var dupUsers = {};
     r.duplicates.forEach(function (x) { dupUsers[String(x.stakeholderId)] = true; });
     var dupIt = r.duplicates.filter(function (x) { return x.requiereIT === 'Si'; }).length;
@@ -371,7 +448,7 @@
     html += summaryCard('Duplicados', Object.keys(dupUsers).length + ' usuarios / ' + r.duplicates.length + ' sesiones');
     html += summaryCard('Duplicados con accion IT', dupIt);
     html += summaryCard('Sin siguiente sesion', noNextProblem);
-    html += summaryCard('Ultima del surveyFlow', noNextLast);
+    html += summaryCard('No problema / no evaluable', noNextOk);
     html += summaryCard('Sin welcome', r.noWelcome.length);
     html += summaryCard('Sin ninguna sesion', r.noSessions.length);
     html += summaryCard('Errores', r.errors.length);
@@ -394,6 +471,14 @@
     $('ksa-results').innerHTML = '';
 
     var opts = getSelectedOptions();
+    if (!opts.checkSurveyFlow) {
+      setStatus('El analisis principal necesita surveyFlow. Activa "Analizar sesiones del surveyFlow" o usa el modo avanzado fuera del surveyFlow.', 'warn');
+      state.running = false;
+      $('ksa-run').disabled = false;
+      $('ksa-cancel').style.display = 'none';
+      return;
+    }
+
     var results = {
       date: new Date().toISOString(),
       companyId: state.companyId,
@@ -406,7 +491,7 @@
       errors: []
     };
 
-    setStatus('Analizando sesiones...', 'info');
+    setStatus('Analizando sesiones contra el surveyFlow real de la empresa...', 'info');
     updateProgress(0, state.users.length);
 
     var done = 0;
@@ -465,6 +550,8 @@
       ['Empresa', r.companyName],
       ['Company ID', r.companyId],
       ['Usuarios analizados', r.totalUsers],
+      ['Politica', 'SurveyFlow principal'],
+      ['Incluir fuera del surveyFlow', $('ksa-check-outside') && $('ksa-check-outside').checked ? 'Si' : 'No'],
       ['Sesiones duplicadas a eliminar', r.duplicates.length],
       ['Duplicados que requieren IT', r.duplicates.filter(function (x) { return x.requiereIT === 'Si'; }).length],
       ['Sin siguiente sesion problema', noNextProblem],
@@ -472,7 +559,8 @@
       ['Sin ninguna sesion', r.noSessions.length],
       ['Errores', r.errors.length],
       ['SurveyFlow detectado', state.surveyFlow ? 'Si' : 'No'],
-      ['Ultimas sesiones por familia', JSON.stringify(state.lastByFamily)]
+      ['SurveyTypeIds en surveyFlow', state.surveyTypesInFlow.map(function (x) { return x.surveyTypeId; }).join(', ')],
+      ['Ultima sesion surveyFlow', (state.lastSurveyNameInFlow || '') + ' (' + (state.lastSurveyTypeIdInFlow || '') + ')']
     ]), 'Resumen');
 
     window.XLSX.utils.book_append_sheet(wb, jsonToSheet(r.duplicates), 'Sesiones Duplicadas');
@@ -485,32 +573,70 @@
     window.XLSX.writeFile(wb, fname);
   }
 
-  function renderFamilies() {
-    var html = '';
-    state.families.forEach(function (id) {
-      var checked = DEFAULT_POLICY.families.indexOf(id) >= 0 ? 'checked' : '';
-      html += '<label style="display:flex;align-items:center;gap:8px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;padding:8px 10px;font-size:12px">';
-      html += '<input class="ksa-family-check" type="checkbox" value="' + esc(id) + '" ' + checked + ' style="width:15px;height:15px;accent-color:#1e293b">';
-      html += '<span>' + esc(familyLabel(id)) + '</span>';
-      html += '</label>';
-    });
-    $('ksa-families').innerHTML = html;
+  function renderSurveyFlowInfo() {
+    var el = $('ksa-surveyflow-info');
+    if (!el) return;
+
+    if (!state.surveyTypesInFlow.length) {
+      el.innerHTML = '<div style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px">No se han detectado sesiones en el surveyFlow. El analisis de "sin siguiente sesion" se marcara como no evaluable salvo que actives el modo avanzado.</div>';
+      return;
+    }
+
+    var preview = state.surveyTypesInFlow.slice(0, 12).map(function (s) {
+      return '<span style="display:inline-block;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:4px 8px;margin:2px;font-size:11px">' + esc(s.name || ('surveyTypeId ' + s.surveyTypeId)) + ' · ' + esc(s.surveyTypeId) + '</span>';
+    }).join('');
+
+    if (state.surveyTypesInFlow.length > 12) {
+      preview += '<span style="display:inline-block;color:#64748b;font-size:11px;margin-left:4px">+' + (state.surveyTypesInFlow.length - 12) + ' mas</span>';
+    }
+
+    el.innerHTML =
+      '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;color:#1e40af;font-size:12px;line-height:1.45">' +
+      '<strong>SurveyFlow detectado:</strong> ' + state.surveyTypesInFlow.length + ' surveyTypeId. ' +
+      '<br><strong>Familias dentro del flujo:</strong> ' + (state.familiesInFlow.map(familyLabel).join(', ') || 'no detectadas') + '.' +
+      '<br><strong>Ultima sesion detectada:</strong> ' + esc(state.lastSurveyNameInFlow || 'sin nombre') + ' (' + esc(state.lastSurveyTypeIdInFlow || '') + ').' +
+      '<div style="margin-top:7px">' + preview + '</div>' +
+      '</div>';
   }
 
-  async function init() {
+  async function prepareCompany() {
     detectCompany();
     $('ksa-company').textContent = state.companyName + ' · ID ' + (state.companyId || '?');
+    $('ksa-run').disabled = true;
+    $('ksa-results').innerHTML = '';
+    state.results = null;
+    state.users = [];
+    state.surveyFlow = null;
+    state.surveyTypesInFlow = [];
+    state.surveyTypeSetInFlow = {};
+    state.familiesInFlow = [];
+    state.lastSurveyTypeIdInFlow = null;
+    state.lastSurveyNameInFlow = '';
+    $('ksa-surveyflow-info').innerHTML = '<div style="color:#94a3b8">Cargando surveyFlow...</div>';
 
     try {
       setStatus('Cargando usuarios y surveyFlow...', 'info');
       await Promise.all([loadUsers(), loadSurveyFlow()]);
-      renderFamilies();
-      var sfMsg = state.surveyFlow ? 'SurveyFlow detectado. Ultimas sesiones por familia: ' + esc(JSON.stringify(state.lastByFamily)) : 'No se pudo leer surveyFlow. La excepcion de ultima sesion no se aplicara salvo que se detecte mas adelante.';
-      setStatus('Empresa preparada: ' + state.users.length + ' usuarios. ' + sfMsg, state.surveyFlow ? 'ok' : 'warn');
+      renderSurveyFlowInfo();
+      var sfMsg = state.surveyTypesInFlow.length ? 'SurveyFlow detectado con ' + state.surveyTypesInFlow.length + ' sesiones/tipos.' : 'No se pudo detectar surveyFlow util.';
+      setStatus('Empresa preparada: ' + state.users.length + ' usuarios. ' + sfMsg + ' El analisis principal usara surveyFlow, no solo surveyFamilyId.', state.surveyTypesInFlow.length ? 'ok' : 'warn');
       $('ksa-run').disabled = false;
     } catch (e) {
+      renderSurveyFlowInfo();
       setStatus('Error inicial: ' + esc(e.message), 'err');
     }
+  }
+
+  async function refreshCompany() {
+    if (state.running) {
+      setStatus('No se puede actualizar compania mientras hay un analisis en curso.', 'warn');
+      return;
+    }
+    await prepareCompany();
+  }
+
+  async function init() {
+    await prepareCompany();
   }
 
   function createPanel() {
@@ -528,20 +654,27 @@
       '</div>' +
       '<div style="overflow:auto;flex:1;padding:16px 18px">' +
         '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:11px 13px;margin-bottom:12px">' +
-          '<div style="font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase">Empresa activa</div>' +
-          '<div id="ksa-company" style="font-size:16px;font-weight:800;color:#166534;margin-top:3px">Detectando...</div>' +
+          '<div style="display:flex;align-items:center;gap:10px">' +
+            '<div style="flex:1;min-width:0">' +
+              '<div style="font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase">Empresa activa</div>' +
+              '<div id="ksa-company" style="font-size:16px;font-weight:800;color:#166534;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Detectando...</div>' +
+            '</div>' +
+            '<button id="ksa-refresh-company" style="background:#166534;color:white;border:none;border-radius:7px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap">Actualizar compania</button>' +
+          '</div>' +
         '</div>' +
         '<div id="ksa-status"></div>' +
         '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:12px">' +
-          '<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:8px">Analisis a realizar</div>' +
-          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-duplicates" type="checkbox" checked> <span>Detectar sesiones duplicadas</span></label>' +
-          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-nonext" type="checkbox" checked> <span>Detectar usuarios sin siguiente sesion</span></label>' +
-          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-welcome" type="checkbox" checked> <span>Detectar problemas de welcome</span></label>' +
-          '<label style="display:flex;gap:8px;margin-bottom:0"><input id="ksa-check-lastflow" type="checkbox" checked> <span>Usar excepcion de ultima sesion del surveyFlow si se puede detectar</span></label>' +
+          '<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:8px">Politica de analisis</div>' +
+          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-surveyflow" type="checkbox" checked> <span>Analizar sesiones del surveyFlow</span></label>' +
+          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-duplicates" type="checkbox" checked> <span>Detectar duplicados dentro del surveyFlow</span></label>' +
+          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-nonext" type="checkbox" checked> <span>Detectar usuarios sin siguiente sesion en surveyFlow</span></label>' +
+          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-welcome" type="checkbox" checked> <span>Revisar welcome</span></label>' +
+          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-lastflow" type="checkbox" checked> <span>Usar excepcion de ultima sesion del surveyFlow</span></label>' +
+          '<label style="display:flex;gap:8px;margin-bottom:0"><input id="ksa-check-outside" type="checkbox"> <span>Incluir sesiones fuera del surveyFlow como analisis avanzado</span></label>' +
         '</div>' +
         '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:12px">' +
-          '<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:8px">Familias a analizar</div>' +
-          '<div id="ksa-families" style="display:grid;grid-template-columns:1fr 1fr;gap:7px"><div style="color:#94a3b8">Cargando...</div></div>' +
+          '<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:8px">SurveyFlow detectado</div>' +
+          '<div id="ksa-surveyflow-info"><div style="color:#94a3b8">Cargando...</div></div>' +
         '</div>' +
         '<div id="ksa-progress" style="display:none;margin-bottom:12px">' +
           '<div style="height:9px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-bottom:6px"><div id="ksa-bar" style="height:100%;width:0%;background:#1e293b;border-radius:999px"></div></div>' +
@@ -552,7 +685,7 @@
           '<button id="ksa-cancel" style="display:none;background:white;border:1px solid #e2e8f0;color:#475569;border-radius:8px;padding:10px;font-weight:700;cursor:pointer">Cancelar</button>' +
         '</div>' +
         '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;color:#92400e;font-size:12px;line-height:1.45;margin-bottom:12px">' +
-          '<strong>Analizar todas las empresas:</strong> reservado para la siguiente fase. Requiere fijar una politica estandar y confirmar endpoint/listado de empresas accesible desde Operador.' +
+          '<strong>Analizar todas las empresas:</strong> reservado para la siguiente fase. Politica propuesta: surveyFlow como fuente principal, welcome aparte y fuera del surveyFlow desactivado por defecto.' +
         '</div>' +
         '<div id="ksa-results"></div>' +
       '</div>';
@@ -561,6 +694,7 @@
     $('ksa-close').onclick = function () { div.remove(); };
     $('ksa-cancel').onclick = function () { state.cancelled = true; setStatus('Cancelando al terminar el lote actual...', 'warn'); };
     $('ksa-run').onclick = runAnalysis;
+    $('ksa-refresh-company').onclick = refreshCompany;
     init();
   }
 
