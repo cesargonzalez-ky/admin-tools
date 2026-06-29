@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-09-real-sf-codes';
+  var VERSION = 'session-analyzer-10-has-successor';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -446,6 +446,7 @@
     state.surveyTypesInFlow = [];
     state.surveyTypeSetInFlow = {};
     state.repeatableSurveyTypeSet = {};
+    state.surveyTypeHasSuccessor = {}; // surveyTypeId -> true si hay un nodo que lo tiene como previous
     state.familiesInFlow = [];
     state.lastSurveyTypeIdInFlow = null;
     state.lastSurveyNameInFlow = '';
@@ -469,6 +470,24 @@
           state.familiesInFlow.push(s.surveyFamilyId);
         }
       });
+
+      // Construir mapa de sucesores: surveyTypeId -> true si existe un nodo en el SF que lo tiene como previous
+      // Esto permite saber si una sesión completada tiene sucesor configurado (aunque sea futuro)
+      if (Array.isArray(sf)) {
+        sf.forEach(function(node) {
+          var prev = node.previous;
+          if (!prev || typeof prev !== 'string') return;
+          var prevCode = prev.toUpperCase();
+          var prevInfo = STANDARD_SURVEY_TYPE_MAP[prevCode];
+          if (prevInfo && prevInfo.surveyTypeId) {
+            state.surveyTypeHasSuccessor[String(prevInfo.surveyTypeId)] = true;
+          }
+          // También puede venir por previousSurveyId (sesiones custom)
+          if (node.previousSurveyId) {
+            state.surveyTypeHasSuccessor['custom_' + String(node.previousSurveyId)] = true;
+          }
+        });
+      }
 
       if (state.surveyTypesInFlow.length) {
         var last = state.surveyTypesInFlow[state.surveyTypesInFlow.length - 1];
@@ -648,16 +667,23 @@
             finished.sort(function (a, b) { return dateValue(b.questionDate || b.dateStatus || b.userStartDate) - dateValue(a.questionDate || a.dateStatus || a.userStartDate); });
             var last = finished[0];
             var lastOfFlow = false;
+            var hasSuccessor = false;
             if (opts.useSurveyFlowLastException && last) {
               lastOfFlow = String(state.lastSurveyTypeIdInFlow || '') === String(last.surveyTypeId || '');
+            }
+            // Si la última sesión completada tiene un sucesor configurado en el surveyFlow
+            // (aunque su fecha aún no haya llegado) → no es un problema, es normal
+            if (last && state.surveyTypeHasSuccessor && state.surveyTypeHasSuccessor[String(last.surveyTypeId || '')]) {
+              hasSuccessor = true;
             }
             rows.noNext.push(Object.assign({}, base, {
               ultimaSesionCompletada: last.surveyName || '',
               surveyTypeId: last.surveyTypeId || '',
               fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
-              nota: lastOfFlow ? 'Ultima sesion del surveyFlow' : 'Sin siguiente sesion en surveyFlow',
-              problema: lastOfFlow ? 'No' : 'Si',
-              requiereIT: lastOfFlow ? 'No' : 'Si'
+              nota: lastOfFlow ? 'Ultima sesion del surveyFlow' :
+                    hasSuccessor ? 'Siguiente sesion pendiente de fecha' : 'Sin siguiente sesion en surveyFlow',
+              problema: (lastOfFlow || hasSuccessor) ? 'No' : 'Si',
+              requiereIT: (lastOfFlow || hasSuccessor) ? 'No' : 'Si'
             }));
           } else {
             rows.noNext.push(Object.assign({}, base, {
