@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-03-surveyflow-driven';
+  var VERSION = 'session-analyzer-05-standard-surveytype-map';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -20,6 +20,102 @@
   var SYSTEM_SURVEY_TYPE_IDS = {
     133: true
   };
+
+  // Mapa estandar para traducir codigos funcionales del surveyFlow a surveyTypeId.
+  // En surveyFlow las sesiones estandar suelen aparecer como KYMATIO_CYBERSECURITY001,
+  // KYMATIO_WELCOME, etc., sin incluir surveyTypeId.
+  var STANDARD_SURVEY_TYPE_MAP = (function () {
+    var m = {};
+
+    function add(code, id, familyId, familyName) {
+      m[String(code).toUpperCase()] = {
+        surveyTypeId: Number(id),
+        surveyFamilyId: familyId == null || familyId === '' ? null : Number(familyId),
+        name: String(code),
+        familyName: familyName || ''
+      };
+    }
+
+    add('KYMATIO_INSIDER_RED', 1, 1, 'KYMATIO_DIRECT');
+    add('KYMATIO_GRI_COMMITMENT', 2, 2, 'KYMATIO_GRI_PLUS');
+    add('KYMATIO_CLIMATE_PLUS_BLUE', 3, 10, 'KYMATIO_CLIMA_PLUS');
+    add('KYMATIO_GRI_TRUST', 4, 2, 'KYMATIO_GRI_PLUS');
+    add('KYMATIO_GRI_CHALLENGE', 5, 2, 'KYMATIO_GRI_PLUS');
+    add('KYMATIO_MULTI_RISK', 6, null, '');
+    add('KYMATIO_PHISHING_GLOBAL', 7, 12, 'KYMATIO_GLOBAL');
+    add('KYMATIO_BREACH_GLOBAL', 8, 12, 'KYMATIO_GLOBAL');
+    add('KYMATIO_GRI_PRAGMATISM', 9, 2, 'KYMATIO_GRI_PLUS');
+    add('KYMATIO_VISHING', 10, null, '');
+    add('KYMATIO_NEUROVISHING', 11, null, '');
+
+    // KYMATIO_CYBERSECURITY001..006 => 12..17
+    for (var i = 1; i <= 6; i++) add('KYMATIO_CYBERSECURITY' + String(i).padStart(3, '0'), 11 + i, 8, 'KYMATIO_CYBERSECURITY');
+
+    add('KYMATIO_NIS2', 18, null, '');
+    add('KYMATIO_GRI_DISSATISFACTION', 19, 2, 'KYMATIO_GRI_PLUS');
+    add('KYMATIO_GRI_NEGLIGENCE', 20, 2, 'KYMATIO_GRI_PLUS');
+    add('KYMATIO_GRI_EXPEDITION', 21, 2, 'KYMATIO_GRI_PLUS');
+    add('KYMATIO_GRI_OVERLOAD', 22, 2, 'KYMATIO_GRI_PLUS');
+    add('KYMATIO_CLIMATE_PLUS', 23, 10, 'KYMATIO_CLIMA_PLUS');
+    add('KYMATIO_INSIDER_RED_REFRESH', 24, 1, 'KYMATIO_DIRECT');
+    add('KYMATIO_CYBERSECURITY_GLOBAL', 25, 12, 'KYMATIO_GLOBAL');
+    add('KYMATIO_CLIMATE_GLOBAL', 26, 12, 'KYMATIO_GLOBAL');
+    add('KYMATIO_INSIDER_GREEN', 27, 1, 'KYMATIO_DIRECT');
+    add('KYMATIO_INSIDER_GREEN_REFRESH', 28, 1, 'KYMATIO_DIRECT');
+    add('KYMATIO_WELCOME', 29, 11, 'KYMATIO_WELCOME');
+    add('KYMATIO_GRI_DIVERGENCE', 30, 2, 'KYMATIO_GRI_PLUS');
+    add('KYMATIO_GRI_GLOBAL', 31, 12, 'KYMATIO_GLOBAL');
+
+    // KYMATIO_CYBERSECURITY007..026 => 32..51
+    for (var j = 7; j <= 26; j++) add('KYMATIO_CYBERSECURITY' + String(j).padStart(3, '0'), j + 25, 8, 'KYMATIO_CYBERSECURITY');
+
+    add('KYMATIO_PHISHING_MANUAL', 52, 13, 'KYMATIO_PHISHING');
+    add('KYMATIO_GAMING_BREACH', 53, 15, 'KYMATIO_GAMING');
+    add('KYMATIO_SCORE_GLOBAL', 54, 12, 'KYMATIO_GLOBAL');
+    add('KYMATIO_TRAININGBOT', 55, null, '');
+    add('KYMATIO_NPS', 56, 4, 'KYMATIO_FREETEXT');
+    add('KYMATIO_NEUROPHISHING', 57, 13, 'KYMATIO_PHISHING');
+    add('KYMATIO_GAMING_BREACH_CORPORATE', 58, 15, 'KYMATIO_GAMING');
+    add('KYMATIO_ARCHETYPE', 59, 1, 'KYMATIO_DIRECT');
+    add('KYMATIO_IMPACT', 60, 1, 'KYMATIO_DIRECT');
+    add('KYMATIO_INSIDER_BLUE', 61, 1, 'KYMATIO_DIRECT');
+    add('KYMATIO_ARCHETYPE_REFRESH', 62, 1, 'KYMATIO_DIRECT');
+    add('KYMATIO_IMPACT_REFRESH', 63, 1, 'KYMATIO_DIRECT');
+    add('KYMATIO_INSIDER_BLUE_REFRESH', 64, 1, 'KYMATIO_DIRECT');
+
+    // KYMATIO_CYBERSECURITY027..074 => 65..112
+    for (var k = 27; k <= 74; k++) add('KYMATIO_CYBERSECURITY' + String(k).padStart(3, '0'), k + 38, 8, 'KYMATIO_CYBERSECURITY');
+
+    add('KYMATIO_CYBERSECURITYS21', 113, 8, 'KYMATIO_CYBERSECURITY');
+    add('KYMATIO_CYBERSECURITY001_NO_GDPR', 114, 8, 'KYMATIO_CYBERSECURITY');
+    add('KYMATIO_CYBERSECURITY002_NO_GDPR', 115, 8, 'KYMATIO_CYBERSECURITY');
+    add('KYMATIO_CYBERSECURITY003_NO_GDPR', 116, 8, 'KYMATIO_CYBERSECURITY');
+    add('KYMATIO_CYBERSECURITY004_NO_GDPR', 117, 8, 'KYMATIO_CYBERSECURITY');
+    add('KYMATIO_CYBERSECURITY007_NO_GDPR', 118, 8, 'KYMATIO_CYBERSECURITY');
+    add('KYMATIO_CYBERSECURITY008_NO_GDPR', 119, 8, 'KYMATIO_CYBERSECURITY');
+    add('KYMATIO_CYBERSECURITY016_NO_GDPR', 120, 8, 'KYMATIO_CYBERSECURITY');
+    add('KYMATIO_CYBERSECURITY021_NO_GDPR', 121, 8, 'KYMATIO_CYBERSECURITY');
+
+    add('KYMATIO_ASSETS_GLOBAL', 122, 12, 'KYMATIO_GLOBAL');
+    add('KYMATIO_GRI_AMBITION', 123, 1, 'KYMATIO_DIRECT');
+    add('KYMATIO_BURNOUT', 124, 16, 'KYMATIO_BURNOUT');
+    add('KYMATIO_SOCIAL_ENGINEERING_GLOBAL', 125, 12, 'KYMATIO_GLOBAL');
+    add('KYMATIO_BURNOUT_GLOBAL', 126, 12, 'KYMATIO_GLOBAL');
+    add('KYMATIO_SMISHING', 127, null, '');
+    add('KYMATIO_NEUROSMISHING', 128, null, '');
+    add('KYMATIO_SOCIAL_ENGINERING', 129, null, '');
+    add('KYMATIO_RANKING', 130, null, '');
+    add('KYMATIO_GAMING', 131, 18, 'KYMATIO_GAMING');
+    add('KYMATIO_CUSTOM', 133, null, '');
+    add('KYMATIO_CYBOT', 134, null, '');
+    add('KYMATIO_WELLBOT', 135, null, '');
+    add('KYMATIO_KYBOT', 136, null, '');
+    add('KYMATIO_SUPBOT', 137, null, '');
+    add('KYMATIO_ABSBOT', 138, null, '');
+    add('KYMATIO_COMPANYBOT', 139, null, '');
+
+    return m;
+  })();
 
   var DEFAULT_POLICY = {
     name: 'SurveyFlow principal',
@@ -42,6 +138,7 @@
     familiesInFlow: [],
     lastSurveyTypeIdInFlow: null,
     lastSurveyNameInFlow: '',
+    surveyFlowParseWarning: false,
     results: null,
     running: false,
     cancelled: false
@@ -154,11 +251,129 @@
     throw new Error('No se han podido cargar usuarios. Entra en Operador > Usuarios y vuelve a lanzar el bookmarklet. Ultimo error: ' + (lastErr && lastErr.message || 'sin datos'));
   }
 
+  function valueByPath(obj, path) {
+    var cur = obj;
+    for (var i = 0; i < path.length; i++) {
+      if (!cur || typeof cur !== 'object') return null;
+      cur = cur[path[i]];
+    }
+    return cur;
+  }
+
+  function asNumberId(v) {
+    if (v == null || v === '') return 0;
+    if (typeof v === 'object') {
+      return Number(v.surveyTypeId || v.typeId || v.id || v.value || 0);
+    }
+    return Number(v || 0);
+  }
+
+  function localizedName(v) {
+    if (!v) return '';
+    if (typeof v === 'string') return v;
+    if (typeof v !== 'object') return String(v);
+    try {
+      var d = v.name && v.name.dictionary || v.dictionary || null;
+      if (d) return d['es-es'] || d['en-us'] || d[Object.keys(d)[0]] || '';
+    } catch (e) {}
+    return v.name || v.title || v.label || v.code || '';
+  }
+
+  function addSurveyTypeFromCode(out, seen, text) {
+    if (!text) return false;
+    var matches = String(text).toUpperCase().match(/KYMATIO_[A-Z0-9_]+/g) || [];
+    var added = false;
+
+    matches.forEach(function (raw) {
+      var code = raw.replace(/[^A-Z0-9_]/g, '');
+      var info = STANDARD_SURVEY_TYPE_MAP[code];
+      if (!info || !info.surveyTypeId) return;
+
+      var key = String(info.surveyTypeId);
+      if (seen[key]) return;
+      seen[key] = true;
+      out.push({
+        surveyTypeId: info.surveyTypeId,
+        surveyFamilyId: info.surveyFamilyId || null,
+        name: info.name || code,
+        source: 'standard-map'
+      });
+      added = true;
+    });
+
+    return added;
+  }
+
   function pushSurveyType(out, seen, x) {
-    var typeId = Number(x.surveyTypeId || x.typeId || x.campaignTypeId || 0);
-    if (!typeId) return;
-    var familyId = Number(x.surveyFamilyId || x.familyId || x.surveyFamily || 0);
-    var name = x.surveyName || x.name || x.title || x.label || x.campaignType || x.campaignTypeName || '';
+    if (!x || typeof x !== 'object') return;
+
+    var typeCandidates = [
+      x.surveyTypeId,
+      x.survey_type_id,
+      x.surveyTypeID,
+      x.survey_type,
+      x.surveyType,
+      x.typeSurveyId,
+      x.typeId,
+      valueByPath(x, ['survey', 'surveyTypeId']),
+      valueByPath(x, ['survey', 'typeId']),
+      valueByPath(x, ['surveyType', 'surveyTypeId']),
+      valueByPath(x, ['surveyType', 'id']),
+      valueByPath(x, ['campaignType', 'surveyTypeId'])
+    ];
+
+    var typeId = 0;
+    for (var i = 0; i < typeCandidates.length; i++) {
+      typeId = asNumberId(typeCandidates[i]);
+      if (typeId) break;
+    }
+
+    if (!typeId) {
+      var codeCandidates = [
+        x.surveyType,
+        x.surveyTypeCode,
+        x.survey_type,
+        x.type,
+        x.code,
+        x.value,
+        x.name,
+        x.title,
+        x.label,
+        valueByPath(x, ['survey', 'surveyType']),
+        valueByPath(x, ['survey', 'code']),
+        valueByPath(x, ['surveyType', 'code']),
+        valueByPath(x, ['surveyType', 'name'])
+      ];
+
+      var mapped = false;
+      for (var ci = 0; ci < codeCandidates.length; ci++) {
+        if (addSurveyTypeFromCode(out, seen, localizedName(codeCandidates[ci]) || codeCandidates[ci])) mapped = true;
+      }
+
+      if (!mapped) return;
+      return;
+    }
+
+    var familyId = asNumberId(
+      x.surveyFamilyId ||
+      x.survey_family_id ||
+      x.familyId ||
+      x.surveyFamily ||
+      valueByPath(x, ['survey', 'surveyFamilyId']) ||
+      valueByPath(x, ['surveyFamily', 'id'])
+    );
+
+    var name =
+      localizedName(x.surveyName) ||
+      localizedName(x.name) ||
+      localizedName(x.title) ||
+      localizedName(x.label) ||
+      localizedName(x.campaignTypeName) ||
+      localizedName(x.campaignType) ||
+      localizedName(valueByPath(x, ['survey', 'name'])) ||
+      localizedName(valueByPath(x, ['surveyType', 'name'])) ||
+      '';
+
     var key = String(typeId);
     if (seen[key]) return;
     seen[key] = true;
@@ -171,7 +386,14 @@
     var seenNode = [];
 
     function walk(x) {
-      if (!x || typeof x !== 'object') return;
+      if (!x) return;
+
+      if (typeof x === 'string') {
+        addSurveyTypeFromCode(out, seenType, x);
+        return;
+      }
+
+      if (typeof x !== 'object') return;
       if (seenNode.indexOf(x) >= 0) return;
       seenNode.push(x);
 
@@ -191,6 +413,7 @@
     state.familiesInFlow = [];
     state.lastSurveyTypeIdInFlow = null;
     state.lastSurveyNameInFlow = '';
+    state.surveyFlowParseWarning = false;
 
     try {
       var data = await apiGet('/admin/stakeholders/companies/' + encodeURIComponent(state.companyId) + '?environment=true&journey=true&services=true');
@@ -199,6 +422,7 @@
       var sf = journey.surveyflow || journey.surveyFlow || journey.flow || null;
       state.surveyFlow = sf;
       state.surveyTypesInFlow = collectSurveyTypes(sf || journey);
+      state.surveyFlowParseWarning = !!(sf || journey) && !state.surveyTypesInFlow.length;
 
       state.surveyTypesInFlow.forEach(function (s) {
         state.surveyTypeSetInFlow[String(s.surveyTypeId)] = true;
@@ -221,6 +445,7 @@
       state.familiesInFlow = [];
       state.lastSurveyTypeIdInFlow = null;
       state.lastSurveyNameInFlow = '';
+      state.surveyFlowParseWarning = false;
     }
   }
 
@@ -251,6 +476,20 @@
       email: u.email,
       departamento: u.department
     };
+  }
+
+  function isLikelyOperationalFlowRecord(record, opts) {
+    if (!record) return false;
+    var familyId = Number(record.surveyFamilyId || 0);
+    var typeId = Number(record.surveyTypeId || 0);
+    var name = String(decodeHtml(record.surveyName || '')).toLowerCase();
+
+    if (familyId === opts.welcomeFamilyId) return false;
+    if (typeId === 52 || name === 'phishing' || name.indexOf('phishing') >= 0) return false;
+    if (typeId === 58 || familyId === 15 || name.indexOf('pwned') >= 0) return false;
+    if (SYSTEM_SURVEY_TYPE_IDS[typeId]) return false;
+
+    return true;
   }
 
   function chooseDuplicateActions(items) {
@@ -336,12 +575,12 @@
     }
 
     if (opts.checkNoNext) {
-      if (!state.surveyTypesInFlow.length && !opts.includeOutsideSurveyFlow) {
+      if (!state.surveyTypesInFlow.length && !opts.includeOutsideSurveyFlow && !flowRecords.length) {
         rows.noNext.push(Object.assign({}, base, {
           ultimaSesionCompletada: '',
           surveyTypeId: '',
           fecha: '',
-          nota: 'No evaluable: surveyFlow no disponible',
+          nota: 'No evaluable: no se pudo extraer surveyFlow util',
           problema: 'No',
           requiereIT: 'No'
         }));
@@ -380,14 +619,14 @@
     }
 
     if (opts.checkWelcome) {
-      var welcomes = all.filter(function (r) { return Number(r.surveyFamilyId) === opts.welcomeFamilyId; });
+      var welcomes = all.filter(function (r) { return Number(r.surveyFamilyId) === opts.welcomeFamilyId || Number(r.surveyTypeId) === 29; });
       var hasFlowSession = flowRecords.length > 0;
       if (!welcomes.length) {
         rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: 'Sin welcome en absoluto', problema: 'Si' }));
       } else {
         var states = welcomes.map(function (w) { return w.surveyStatus; }).filter(Boolean).join(', ');
         var hasFinish = welcomes.some(function (w) { return w.surveyStatus === 'FINISH'; });
-        if (hasFinish && !hasFlowSession) {
+        if (hasFinish && !hasFlowSession && (state.surveyTypesInFlow.length || opts.includeOutsideSurveyFlow)) {
           rows.noWelcome.push(Object.assign({}, base, { estadoWelcome: states || 'FINISH', problema: 'Si', nota: 'Welcome completada pero sin sesiones del surveyFlow' }));
         }
       }
@@ -560,6 +799,7 @@
       ['Errores', r.errors.length],
       ['SurveyFlow detectado', state.surveyFlow ? 'Si' : 'No'],
       ['SurveyTypeIds en surveyFlow', state.surveyTypesInFlow.map(function (x) { return x.surveyTypeId; }).join(', ')],
+      ['Mapa estandar SurveyType usado', 'Si'],
       ['Ultima sesion surveyFlow', (state.lastSurveyNameInFlow || '') + ' (' + (state.lastSurveyTypeIdInFlow || '') + ')']
     ]), 'Resumen');
 
@@ -578,7 +818,7 @@
     if (!el) return;
 
     if (!state.surveyTypesInFlow.length) {
-      el.innerHTML = '<div style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px">No se han detectado sesiones en el surveyFlow. El analisis de "sin siguiente sesion" se marcara como no evaluable salvo que actives el modo avanzado.</div>';
+      el.innerHTML = '<div style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px">No se han podido extraer sesiones utiles del surveyFlow. El analisis de sin siguiente sesion quedara como no evaluable salvo que actives el modo avanzado.</div>';
       return;
     }
 
@@ -618,8 +858,8 @@
       setStatus('Cargando usuarios y surveyFlow...', 'info');
       await Promise.all([loadUsers(), loadSurveyFlow()]);
       renderSurveyFlowInfo();
-      var sfMsg = state.surveyTypesInFlow.length ? 'SurveyFlow detectado con ' + state.surveyTypesInFlow.length + ' sesiones/tipos.' : 'No se pudo detectar surveyFlow util.';
-      setStatus('Empresa preparada: ' + state.users.length + ' usuarios. ' + sfMsg + ' El analisis principal usara surveyFlow, no solo surveyFamilyId.', state.surveyTypesInFlow.length ? 'ok' : 'warn');
+      var sfMsg = state.surveyTypesInFlow.length ? 'SurveyFlow detectado con ' + state.surveyTypesInFlow.length + ' sesiones/tipos.' : 'No se pudo extraer surveyFlow util; el analisis principal quedara como no evaluable.';
+      setStatus('Empresa preparada: ' + state.users.length + ' usuarios. ' + sfMsg + ' El analisis principal no se basara solo en surveyFamilyId.', state.surveyTypesInFlow.length ? 'ok' : 'warn');
       $('ksa-run').disabled = false;
     } catch (e) {
       renderSurveyFlowInfo();
