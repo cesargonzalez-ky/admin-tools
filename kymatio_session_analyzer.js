@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-15-async-refresh-fix';
+  var VERSION = 'session-analyzer-16-clean-ui';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -704,17 +704,12 @@
 
     if (opts.checkNoNext) {
       if (!state.surveyTypesInFlow.length && !opts.includeOutsideSurveyFlow && !flowRecords.length) {
-        rows.noNext.push(Object.assign({}, base, {
-          ultimaSesionCompletada: '',
-          surveyTypeId: '',
-          fecha: '',
-          nota: 'No evaluable: no se pudo extraer surveyFlow util',
-          problema: 'No',
-          requiereIT: 'No'
-        }));
+        // No evaluable: surveyFlow sin sesiones útiles — no reportar
       } else {
-        var pending = flowRecords.some(function (r) { return ['AVAILABLE', 'PROGRESS', 'UNAVAILABLE'].indexOf(r.surveyStatus) >= 0; });
-        var finished = flowRecords.filter(function (r) { return r.surveyStatus === 'FINISH'; });
+        // Analizar solo la rama de cyber (familyId 8)
+        var cyberRecords = flowRecords.filter(function(r){ return Number(r.surveyFamilyId) === 8; });
+        var pending = cyberRecords.some(function (r) { return ['AVAILABLE', 'PROGRESS', 'UNAVAILABLE'].indexOf(r.surveyStatus) >= 0; });
+        var finished = cyberRecords.filter(function (r) { return r.surveyStatus === 'FINISH'; });
 
         if (!pending) {
           if (finished.length) {
@@ -723,33 +718,17 @@
             var lastOfFlow = false;
             var hasSuccessor = false;
             if (last) {
-              // Fin de la rama de cyber: comparar contra la última sesión cyber del surveyFlow
               var lastCyberId = state.lastCyberSurveyTypeIdInFlow || state.lastSurveyTypeIdInFlow;
               lastOfFlow = String(lastCyberId || '') === String(last.surveyTypeId || '');
             }
-            // Si la última sesión completada tiene un sucesor configurado en el surveyFlow
-            // (aunque su fecha aún no haya llegado) → no es un problema, es normal
             if (last && state.surveyTypeHasSuccessor && state.surveyTypeHasSuccessor[String(last.surveyTypeId || '')]) {
               hasSuccessor = true;
             }
-            var isEndOfCyberBranch = lastOfFlow;
-            var hasCyberSuccessor = hasSuccessor;
 
-            if (isEndOfCyberBranch) {
-              // Llegó al final de la rama de cyber
-              if (!opts.useSurveyFlowLastException) {
-                // Check desmarcado: reportar con nota informativa, no requiere IT
-                rows.noNext.push(Object.assign({}, base, {
-                  ultimaSesionCompletada: last.surveyName || '',
-                  surveyTypeId: last.surveyTypeId || '',
-                  fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
-                  nota: 'Final de la rama de ciberconcienciacion',
-                  requiereIT: 'No'
-                }));
-              }
-              // Check marcado: no reportar — es el comportamiento esperado
-            } else if (!hasCyberSuccessor) {
-              // No llegó al final pero tampoco tiene sucesor configurado — problema real
+            if (lastOfFlow) {
+              // Final de la rama — no reportar (check siempre activo)
+            } else if (!hasSuccessor) {
+              // No tiene sucesor configurado — problema real
               rows.noNext.push(Object.assign({}, base, {
                 ultimaSesionCompletada: last.surveyName || '',
                 surveyTypeId: last.surveyTypeId || '',
@@ -758,20 +737,18 @@
                 requiereIT: 'Si'
               }));
             }
-            // Si hasCyberSuccessor: tiene sesión programada aunque sea futura — no reportar
+            // Si hasSuccessor: sesión programada a futuro — no reportar
+          } else if (cyberRecords.length === 0 && flowRecords.length > 0) {
+            // Tiene sesiones de flujo pero ninguna de cyber — no es problema de cyber
           } else {
-            // Solo reportar si no tienen ninguna sesión de cyber
-            if (cyberRecords.length === 0 && flowRecords.length > 0) {
-              // Tiene sesiones del flujo pero ninguna de cyber — no reportar como problema de cyber
-            } else {
-              rows.noNext.push(Object.assign({}, base, {
-                ultimaSesionCompletada: '',
-                surveyTypeId: '',
-                fecha: '',
-                nota: 'Sin sesiones de ciberconcienciacion en surveyFlow',
-                requiereIT: 'Si'
-              }));
-            }
+            // Sin ninguna sesión de cyber completada ni pendiente
+            rows.noNext.push(Object.assign({}, base, {
+              ultimaSesionCompletada: '',
+              surveyTypeId: '',
+              fecha: '',
+              nota: 'Sin sesiones de ciberconcienciacion en surveyFlow',
+              requiereIT: 'Si'
+            }));
           }
         }
       }
@@ -801,13 +778,13 @@
 
   function getSelectedOptions() {
     return {
-      checkSurveyFlow: $('ksa-check-surveyflow').checked,
-      checkDuplicates: $('ksa-check-duplicates').checked,
-      checkNoNext: $('ksa-check-nonext').checked,
-      checkWelcome: $('ksa-check-welcome').checked,
+      checkSurveyFlow: true,
+      checkDuplicates: true,
+      checkNoNext: true,
+      checkWelcome: true,
       welcomeFamilyId: 11,
-      useSurveyFlowLastException: $('ksa-check-lastflow').checked,
-      includeOutsideSurveyFlow: $('ksa-check-outside').checked
+      useSurveyFlowLastException: true,
+      includeOutsideSurveyFlow: false
     };
   }
 
@@ -977,24 +954,23 @@
     if (!el) return;
 
     if (!state.surveyTypesInFlow.length) {
-      el.innerHTML = '<div style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px">No se han podido extraer sesiones utiles del surveyFlow. El analisis de sin siguiente sesion quedara como no evaluable salvo que actives el modo avanzado.</div>';
+      el.innerHTML = '<div style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px">&#9888; No se ha podido cargar el surveyFlow.</div>';
       return;
     }
 
-    var preview = state.surveyTypesInFlow.slice(0, 12).map(function (s) {
-      return '<span style="display:inline-block;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:4px 8px;margin:2px;font-size:11px">' + esc(s.name || ('surveyTypeId ' + s.surveyTypeId)) + ' · ' + esc(s.surveyTypeId) + '</span>';
-    }).join('');
-
-    if (state.surveyTypesInFlow.length > 12) {
-      preview += '<span style="display:inline-block;color:#64748b;font-size:11px;margin-left:4px">+' + (state.surveyTypesInFlow.length - 12) + ' mas</span>';
+    var lastCyberName = '';
+    var lastCyberId = state.lastCyberSurveyTypeIdInFlow;
+    if (lastCyberId) {
+      var lastCyberEntry = state.surveyTypesInFlow.find(function(s){ return s.surveyTypeId === lastCyberId; });
+      lastCyberName = lastCyberEntry ? (lastCyberEntry.name || '') : '';
     }
 
     el.innerHTML =
-      '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;color:#1e40af;font-size:12px;line-height:1.45">' +
-      '<strong>SurveyFlow detectado:</strong> ' + state.surveyTypesInFlow.length + ' surveyTypeId. ' +
-      '<br><strong>Familias dentro del flujo:</strong> ' + (state.familiesInFlow.map(familyLabel).join(', ') || 'no detectadas') + '.' +
-      '<br><strong>Ultima sesion detectada:</strong> ' + esc(state.lastSurveyNameInFlow || 'sin nombre') + ' (' + esc(state.lastSurveyTypeIdInFlow || '') + ').' +
-      '<div style="margin-top:7px">' + preview + '</div>' +
+      '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;color:#166534;font-size:12px;line-height:1.6">' +
+      '&#10003; SurveyFlow cargado correctamente.' +
+      (lastCyberId
+        ? '<br><strong>Ultima sesion de ciberconcienciacion:</strong> ' + esc(lastCyberName || 'surveyTypeId ' + lastCyberId) + ' (' + esc(String(lastCyberId)) + ').'
+        : '<br><span style="color:#92400e">No se ha detectado rama de ciberconcienciacion en el flujo.</span>') +
       '</div>';
   }
 
@@ -1064,15 +1040,7 @@
           '</div>' +
         '</div>' +
         '<div id="ksa-status"></div>' +
-        '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:12px">' +
-          '<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:8px">Politica de analisis</div>' +
-          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-surveyflow" type="checkbox" checked> <span>Analizar sesiones del surveyFlow</span></label>' +
-          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-duplicates" type="checkbox" checked> <span>Detectar duplicados dentro del surveyFlow</span></label>' +
-          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-nonext" type="checkbox" checked> <span>Detectar usuarios sin siguiente sesion en surveyFlow</span></label>' +
-          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-welcome" type="checkbox" checked> <span>Revisar welcome</span></label>' +
-          '<label style="display:flex;gap:8px;margin-bottom:7px"><input id="ksa-check-lastflow" type="checkbox" checked> <span>Usar excepcion de ultima sesion del surveyFlow</span></label>' +
-          '<label style="display:flex;gap:8px;margin-bottom:0"><input id="ksa-check-outside" type="checkbox"> <span>Incluir sesiones fuera del surveyFlow como analisis avanzado</span></label>' +
-        '</div>' +
+        
         '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:12px">' +
           '<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:8px">SurveyFlow detectado</div>' +
           '<div id="ksa-surveyflow-info"><div style="color:#94a3b8">Cargando...</div></div>' +
