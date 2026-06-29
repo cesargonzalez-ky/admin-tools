@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-13-last-exception-check';
+  var VERSION = 'session-analyzer-14-last-cyber-detection';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -450,6 +450,7 @@
     state.familiesInFlow = [];
     state.lastSurveyTypeIdInFlow = null;
     state.lastSurveyNameInFlow = '';
+    state.lastCyberSurveyTypeIdInFlow = null;
     state.surveyFlowParseWarning = false;
 
     try {
@@ -526,6 +527,26 @@
         var last = state.surveyTypesInFlow[state.surveyTypesInFlow.length - 1];
         state.lastSurveyTypeIdInFlow = last.surveyTypeId;
         state.lastSurveyNameInFlow = last.name || '';
+      }
+
+      // Calcular la última sesión de cyber de la rama:
+      // es la sesión de cyber que NO tiene sucesor marcado en surveyTypeHasSuccessor
+      // (o que tiene sucesor pero ese sucesor no lleva a más cyber)
+      state.lastCyberSurveyTypeIdInFlow = null;
+      var cyberInFlow = state.surveyTypesInFlow.filter(function(s){ return s.surveyFamilyId === 8; });
+      if (cyberInFlow.length) {
+        // La última cyber sin sucesor configurado es el final de la rama
+        var lastCyber = null;
+        for (var ci = cyberInFlow.length - 1; ci >= 0; ci--) {
+          var cs = cyberInFlow[ci];
+          if (!state.surveyTypeHasSuccessor[String(cs.surveyTypeId)]) {
+            lastCyber = cs;
+            break;
+          }
+        }
+        // Si todas tienen sucesor, la última del array es el final
+        if (!lastCyber) lastCyber = cyberInFlow[cyberInFlow.length - 1];
+        state.lastCyberSurveyTypeIdInFlow = lastCyber.surveyTypeId;
       }
 
       state.familiesInFlow.sort(function (a, b) { return a - b; });
@@ -701,8 +722,10 @@
             var last = finished[0];
             var lastOfFlow = false;
             var hasSuccessor = false;
-            if (opts.useSurveyFlowLastException && last) {
-              lastOfFlow = String(state.lastSurveyTypeIdInFlow || '') === String(last.surveyTypeId || '');
+            if (last) {
+              // Fin de la rama de cyber: comparar contra la última sesión cyber del surveyFlow
+              var lastCyberId = state.lastCyberSurveyTypeIdInFlow || state.lastSurveyTypeIdInFlow;
+              lastOfFlow = String(lastCyberId || '') === String(last.surveyTypeId || '');
             }
             // Si la última sesión completada tiene un sucesor configurado en el surveyFlow
             // (aunque su fecha aún no haya llegado) → no es un problema, es normal
@@ -989,6 +1012,7 @@
     state.familiesInFlow = [];
     state.lastSurveyTypeIdInFlow = null;
     state.lastSurveyNameInFlow = '';
+    state.lastCyberSurveyTypeIdInFlow = null;
     $('ksa-surveyflow-info').innerHTML = '<div style="color:#94a3b8">Cargando surveyFlow...</div>';
 
     try {
