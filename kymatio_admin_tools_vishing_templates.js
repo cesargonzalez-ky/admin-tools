@@ -6,7 +6,7 @@
 
   var SURVEY_TYPE_ID = 10;
   var AGENT_ID = 151;
-  var MODULE_VERSION = 'vishing-15-locale-cache-preload-2026-06-30';
+  var MODULE_VERSION = 'vishing-17-block-save-no-extraction-2026-06-30';
 
   var LANG_NAMES = { 'es-es':'Español','es-mx':'Español (Latam)','en-us':'Inglés','eu':'Euskera','pl':'Polaco','cat':'Catalán','pt-pt':'Portugués (Portugal)','pt-br':'Portugués (Brasil)','sv':'Sueco','fr':'Francés','it':'Italiano','de':'Alemán' };
   var CATEGORIES = [
@@ -481,21 +481,50 @@
         // devolver estructuras distintas o textos normalizados. Para la pantalla se usa
         // controller del locale seleccionado; para seguridad/guardado se usa mapping de admin.
         var adminHasComplete = !!(adminRec && hasCompleteMappingRecord(adminRec));
-        var complete = !!adminHasComplete;
+        // Si admin devuelve un locale distinto al pedido, la extracción no es fiable
+        var adminLocaleMatches = !adminLocale || String(adminLocale) === String(loc);
+        var complete = !!(adminHasComplete && adminLocaleMatches);
 
-        var rec = complete ? mergeControllerWithAdminMeta(controllerRec, item, loc, adminRec, true) : mergeControllerWithAdminMeta(controllerRec, item, loc, adminRec, false);
+        var rec = mergeControllerWithAdminMeta(controllerRec, item, loc, adminRec, complete);
         populateEditForm(rec, item, loc);
+
+        // Si el locale de admin no coincide, limpiar campos de extracción para que el usuario los rellene
+        if(adminHasComplete && !adminLocaleMatches) {
+          for(var ei=1;ei<=4;ei++){
+            var extEl=$('kat-vext'+ei);
+            if(extEl) extEl.value='';
+          }
+          // Usar cache si existe para este idioma
+          var cached = state.localeCache && state.localeCache[loc];
+          if(cached && cached.extraction) {
+            Object.keys(cached.extraction).forEach(function(ev){
+              for(var ei2=1;ei2<=4;ei2++){
+                var evEl=$('kat-vevent'+ei2);
+                if(evEl && evEl.value===ev){
+                  var extEl2=$('kat-vext'+ei2);
+                  if(extEl2) extEl2.value=cached.extraction[ev];
+                }
+              }
+            });
+          }
+        }
+
         state.currentLoadComplete=complete;
         state.currentLoadPartial=!complete;
         if(complete){
-          status(st,'✓ Contenido completo cargado para '+h(langLabel(loc))+'. Guardado habilitado. Mapping recuperado desde admin/mgm con locale='+h(loc)+'.' + (adminLocale && String(adminLocale)!==String(loc) ? ' Nota: el locale interno de admin era '+h(langLabel(adminLocale))+' y se ha forzado en pantalla a '+h(langLabel(loc))+'.' : ''),'ok');
+          status(st,'✓ Contenido cargado para '+h(langLabel(loc))+'. Guardado habilitado.','ok');
           setFormReadonly(false);
           setSaveEnabled(true,'');
+        } else if(adminHasComplete && !adminLocaleMatches) {
+          // La API devuelve extracción de otro idioma — no podemos guardar sin perder datos
+          status(st,'⚠ La API no devuelve la extracción en '+h(langLabel(loc))+' (devuelve '+h(langLabel(adminLocale))+'). No es seguro guardar porque se perderían los prompts existentes de este idioma. Solo lectura.','warn');
+          setFormReadonly(true);
+          setSaveEnabled(false,'No se puede guardar: la API no devuelve la extracción en el idioma seleccionado ('+langLabel(loc)+'). Guardar sobreescribiría los prompts existentes con valores vacíos.');
         } else {
           var reason = 'Falta configuration.mapping completo para este idioma.';
           status(st,'⚠ Contenido cargado desde operador para '+h(langLabel(loc))+'. '+h(reason)+' Modo solo lectura y guardado deshabilitado.' + (adminError ? ' Admin: ' + h(adminError) : '') + (ctrlError ? ' Controller: ' + h(ctrlError) : ''),'warn');
           setFormReadonly(true);
-          setSaveEnabled(false,'No es seguro guardar porque no se ha recuperado configuration.mapping completo y consistente del idioma seleccionado.');
+          setSaveEnabled(false,'No es seguro guardar porque no se ha recuperado configuration.mapping completo.');
         }
       }catch(e){ state.currentLoadComplete=false; state.currentLoadPartial=true; setFormReadonly(true); setSaveEnabled(false,'Error cargando contenido.'); status(st,'✗ '+h(e.message),'err'); }
     }
@@ -599,5 +628,5 @@
     tools.loadCompanyData().then(function(data){ var l=(data.environment&&data.environment.languages)||{}; state.langs=(Array.isArray(l.list)&&l.list.length)?l.list.slice():['es-es']; state.defLang=l.default||state.langs[0]||'es-es'; renderList(); }).catch(function(e){ container.innerHTML='<div style="padding:14px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030">Error: '+h(e.message)+'</div>'; });
   }
 
-  KAT.registerModule({ key:'vishing_templates_draft', label:'BORRADOR - Vishing v15', icon:'&#9742;', order:75, renderGui:renderGui });
+  KAT.registerModule({ key:'vishing_templates_draft', label:'BORRADOR - Vishing v17', icon:'&#9742;', order:75, renderGui:renderGui });
 })();
