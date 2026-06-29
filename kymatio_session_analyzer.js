@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-07-repeteable-fix';
+  var VERSION = 'session-analyzer-09-real-sf-codes';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -113,6 +113,9 @@
     add('KYMATIO_SUPBOT', 137, null, '');
     add('KYMATIO_ABSBOT', 138, null, '');
     add('KYMATIO_COMPANYBOT', 139, null, '');
+    // Aliases reales que aparecen en el surveyFlow (distintos de los nombres internos)
+    add('KYMATIO_PHISHING', 7, 13, 'KYMATIO_PHISHING');              // alias real en surveyFlow
+    add('KYMATIO_BREACH_CORPORATE', 8, 12, 'KYMATIO_GLOBAL');        // alias real en surveyFlow
 
     return m;
   })();
@@ -374,18 +377,13 @@
       localizedName(valueByPath(x, ['surveyType', 'name'])) ||
       '';
 
-    var repeatableCandidates = [
-      x.repeatable, x.repeteable,  // API usa 'repeteable' (typo)
-      x.isRepeatable, x.is_repeatable,
-      x.repeat, x.canRepeat, x.allowRepeat,
-      valueByPath(x, ['survey', 'repeatable']),
-      valueByPath(x, ['survey', 'repeteable']),
-      valueByPath(x, ['surveyType', 'repeatable']),
-      valueByPath(x, ['surveyType', 'repeteable'])
+    // Detectar repeatable — la API usa 'repeteable' (typo)
+    var repCandidates = [
+      x.repeteable, x.repeatable, x.isRepeatable, x.is_repeatable, x.repeat, x.canRepeat
     ];
     var isRepeatable = false;
-    for (var ri = 0; ri < repeatableCandidates.length; ri++) {
-      if (repeatableCandidates[ri] === true || repeatableCandidates[ri] === 1 || repeatableCandidates[ri] === 'true') {
+    for (var ri = 0; ri < repCandidates.length; ri++) {
+      if (repCandidates[ri] === true || repCandidates[ri] === 1 || repCandidates[ri] === 'true') {
         isRepeatable = true; break;
       }
     }
@@ -413,32 +411,25 @@
       if (seenNode.indexOf(x) >= 0) return;
       seenNode.push(x);
 
-      // Formato del surveyFlow de Kymatio: {next: 'KYMATIO_CODE', repeteable: false, ...}
+      // Formato real del surveyFlow: {next:'KYMATIO_CODE', repeteable:bool, previous:..., date:...}
       if (typeof x.next === 'string' && x.next.indexOf('KYMATIO_') === 0) {
-        var info = (typeof STANDARD_SURVEY_TYPE_MAP !== 'undefined') ? STANDARD_SURVEY_TYPE_MAP[x.next] : null;
-        if (info && info.surveyTypeId) {
-          var key = String(info.surveyTypeId);
-          if (!seenType[key]) {
-            seenType[key] = true;
-            var isRep = (x.repeteable === true || x.repeteable === 1 || x.repeteable === 'true' ||
-                         x.repeatable === true || x.repeatable === 1);
+        var sfInfo = STANDARD_SURVEY_TYPE_MAP[x.next.toUpperCase()];
+        if (sfInfo && sfInfo.surveyTypeId) {
+          var sfKey = String(sfInfo.surveyTypeId);
+          if (!seenType[sfKey]) {
+            seenType[sfKey] = true;
+            var sfRep = (x.repeteable === true || x.repeatable === true ||
+                         x.repeteable === 1 || x.repeatable === 1);
             out.push({
-              surveyTypeId: info.surveyTypeId,
-              surveyFamilyId: info.surveyFamilyId || null,
-              name: info.name || x.next,
-              repeatable: isRep,
+              surveyTypeId: sfInfo.surveyTypeId,
+              surveyFamilyId: sfInfo.surveyFamilyId || null,
+              name: sfInfo.name || x.next,
+              repeatable: sfRep,
               source: 'surveyflow-next'
             });
           }
-        } else {
-          // Intentar via addSurveyTypeFromCode pero marcar el repeatable
-          addSurveyTypeFromCode(out, seenType, x.next);
-          // Marcar el último añadido como repeatable si aplica
-          if (out.length > 0 && (x.repeteable === true || x.repeatable === true)) {
-            out[out.length - 1].repeatable = true;
-          }
         }
-        return; // No seguir walking los hijos — evitar duplicados
+        return; // No seguir bajando — evitar duplicados
       }
 
       pushSurveyType(out, seenType, x);
@@ -490,7 +481,6 @@
       state.surveyFlow = null;
       state.surveyTypesInFlow = [];
       state.surveyTypeSetInFlow = {};
-      state.repeatableSurveyTypeSet = {};
       state.familiesInFlow = [];
       state.lastSurveyTypeIdInFlow = null;
       state.lastSurveyNameInFlow = '';
@@ -583,6 +573,18 @@
     return records;
   }
 
+  // surveyTypeIds inherentemente repetibles — nunca se reportan como duplicados:
+  // Phishing:  KYMATIO_PHISHING(7), KYMATIO_PHISHING_MANUAL(52), KYMATIO_NEUROPHISHING(57)
+  // Breach:    KYMATIO_BREACH_GLOBAL/BREACH_CORPORATE(8), KYMATIO_GAMING_BREACH(53), KYMATIO_GAMING_BREACH_CORPORATE(58)
+  // Vishing:   KYMATIO_VISHING(10), KYMATIO_NEUROVISHING(11)
+  // Smishing:  KYMATIO_SMISHING(127), KYMATIO_NEUROSMISHING(128)
+  // Gaming:    KYMATIO_GAMING(131)
+  var ALWAYS_REPEATABLE_IDS = {
+    '7':1, '8':1, '10':1, '11':1,
+    '52':1, '53':1, '57':1, '58':1,
+    '127':1, '128':1, '131':1
+  };
+
   function analyzeUser(user, records, opts) {
     var base = getUserDisplay(user);
     var rows = { duplicates: [], noNext: [], noWelcome: [], noSessions: [] };
@@ -607,7 +609,9 @@
 
       Object.keys(byType).forEach(function (k) {
         if (byType[k].length <= 1) return;
-        // Si el surveyType está marcado como repeatable en el surveyFlow, ignorar el duplicado
+        // Excluir sesiones inherentemente repetibles (phishing, smishing, vishing, breach, gaming)
+        if (ALWAYS_REPEATABLE_IDS[k]) return;
+        // Excluir también las marcadas como repeatable en el surveyFlow
         if (state.repeatableSurveyTypeSet && state.repeatableSurveyTypeSet[k]) return;
         chooseDuplicateActions(byType[k]).forEach(function (a) {
           rows.duplicates.push(Object.assign({}, base, {
@@ -900,6 +904,7 @@
     state.surveyFlow = null;
     state.surveyTypesInFlow = [];
     state.surveyTypeSetInFlow = {};
+    state.repeatableSurveyTypeSet = {};
     state.familiesInFlow = [];
     state.lastSurveyTypeIdInFlow = null;
     state.lastSurveyNameInFlow = '';
