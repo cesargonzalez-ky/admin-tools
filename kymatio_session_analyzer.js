@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-05-standard-surveytype-map';
+  var VERSION = 'session-analyzer-06-repeatable-skip';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -374,10 +374,23 @@
       localizedName(valueByPath(x, ['surveyType', 'name'])) ||
       '';
 
+    var repeatableCandidates = [
+      x.repeatable, x.isRepeatable, x.is_repeatable,
+      x.repeat, x.canRepeat, x.allowRepeat,
+      valueByPath(x, ['survey', 'repeatable']),
+      valueByPath(x, ['surveyType', 'repeatable'])
+    ];
+    var isRepeatable = false;
+    for (var ri = 0; ri < repeatableCandidates.length; ri++) {
+      if (repeatableCandidates[ri] === true || repeatableCandidates[ri] === 1 || repeatableCandidates[ri] === 'true') {
+        isRepeatable = true; break;
+      }
+    }
+
     var key = String(typeId);
     if (seen[key]) return;
     seen[key] = true;
-    out.push({ surveyTypeId: typeId, surveyFamilyId: familyId || null, name: decodeHtml(name || '') });
+    out.push({ surveyTypeId: typeId, surveyFamilyId: familyId || null, name: decodeHtml(name || ''), repeatable: isRepeatable });
   }
 
   function collectSurveyTypes(obj) {
@@ -410,6 +423,7 @@
     state.surveyFlow = null;
     state.surveyTypesInFlow = [];
     state.surveyTypeSetInFlow = {};
+    state.repeatableSurveyTypeSet = {};
     state.familiesInFlow = [];
     state.lastSurveyTypeIdInFlow = null;
     state.lastSurveyNameInFlow = '';
@@ -426,6 +440,9 @@
 
       state.surveyTypesInFlow.forEach(function (s) {
         state.surveyTypeSetInFlow[String(s.surveyTypeId)] = true;
+        if (s.repeatable) {
+          state.repeatableSurveyTypeSet[String(s.surveyTypeId)] = true;
+        }
         if (s.surveyFamilyId && state.familiesInFlow.indexOf(s.surveyFamilyId) < 0) {
           state.familiesInFlow.push(s.surveyFamilyId);
         }
@@ -442,6 +459,7 @@
       state.surveyFlow = null;
       state.surveyTypesInFlow = [];
       state.surveyTypeSetInFlow = {};
+      state.repeatableSurveyTypeSet = {};
       state.familiesInFlow = [];
       state.lastSurveyTypeIdInFlow = null;
       state.lastSurveyNameInFlow = '';
@@ -558,6 +576,8 @@
 
       Object.keys(byType).forEach(function (k) {
         if (byType[k].length <= 1) return;
+        // Si el surveyType está marcado como repeatable en el surveyFlow, ignorar el duplicado
+        if (state.repeatableSurveyTypeSet && state.repeatableSurveyTypeSet[k]) return;
         chooseDuplicateActions(byType[k]).forEach(function (a) {
           rows.duplicates.push(Object.assign({}, base, {
             ambito: opts.includeOutsideSurveyFlow && !isInSurveyFlow(a.remove) ? 'Fuera surveyFlow' : 'SurveyFlow',
