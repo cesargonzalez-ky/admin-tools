@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-27-sample-toggle';
+  var VERSION = 'session-analyzer-28-toggle-fix';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -1199,16 +1199,15 @@
           var users = (usersData.records || []).map(normalizeUser).filter(function(u){ return !!u.stakeholderId; });
           if (!users.length) { allResults.skipped++; continue; }
 
-          // Aplicar límite de usuarios por empresa
-          var userLimit = parseInt($('ksa-sample-users') && $('ksa-sample-users').value || '', 10);
-          var forcedUserId = parseInt($('ksa-sample-user-id') && $('ksa-sample-user-id').value || '', 10);
+          // Aplicar límite de usuarios solo si el toggle de muestreo está ON
+          var userLimit = sampleActive ? parseInt($('ksa-sample-users') && $('ksa-sample-users').value || '', 10) : NaN;
           var isSampleUsers = !isNaN(userLimit) && userLimit > 0;
 
           if (isSampleUsers) {
             var sampledUsers = users.slice(0, userLimit);
             // Añadir usuarios forzados (lista separada por comas) si no están en la muestra
-            var forcedUserIds = ($('ksa-sample-user-id') && $('ksa-sample-user-id').value || '')
-              .split(',').map(function(s){ return parseInt(s.trim(), 10); }).filter(function(n){ return !isNaN(n) && n > 0; });
+            var forcedUserIds = sampleActive ? ($('ksa-sample-user-id') && $('ksa-sample-user-id').value || '')
+              .split(',').map(function(s){ return parseInt(s.trim(), 10); }).filter(function(n){ return !isNaN(n) && n > 0; }) : [];
             forcedUserIds.forEach(function(fuid) {
               var inSample = sampledUsers.some(function(u){ return u.stakeholderId === fuid; });
               if (!inSample) {
