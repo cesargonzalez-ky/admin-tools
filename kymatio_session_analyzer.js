@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-23-welcome-pending-fix';
+  var VERSION = 'session-analyzer-24-noNext-improvements';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -708,7 +708,6 @@
             estadoEliminar: a.remove.surveyStatus || '',
             surveyEntityIdConservar: a.keep && a.keep.surveyEntityId || '',
             estadoConservar: a.keep && a.keep.surveyStatus || '',
-            requiereIT: a.requiresIt ? 'Si' : 'No'
           }));
         });
       });
@@ -732,14 +731,19 @@
             var hasSuccessor = !!(sf.surveyTypeHasSuccessor && sf.surveyTypeHasSuccessor[String(last.surveyTypeId || '')]);
 
             if (lastOfFlow) {
-              // Final de la rama de cyber — no reportar
+              // Final de la rama de cyber — reportar con nota informativa (para filtrado)
+              rows.noNext.push(Object.assign({}, base, {
+                ultimaSesionCompletada: last.surveyName || '',
+                surveyTypeId: last.surveyTypeId || '',
+                fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
+                nota: 'Final de la rama de ciberconcienciacion'
+              }));
             } else if (!hasSuccessor) {
               rows.noNext.push(Object.assign({}, base, {
                 ultimaSesionCompletada: last.surveyName || '',
                 surveyTypeId: last.surveyTypeId || '',
                 fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
-                nota: 'Sin siguiente sesion en surveyFlow',
-                requiereIT: 'Si'
+                nota: 'Sin siguiente sesion en surveyFlow'
               }));
             }
             // hasSuccessor: sesión futura programada — no reportar
@@ -753,15 +757,15 @@
             });
             if ((sfHasCyber || flowRecords.length > 0) && welcomeDone) {
               // Buscar la última sesión completada de cualquier familia para mostrarla
-              var allFinished = all.filter(function(r){ return r.surveyStatus === 'FINISH'; });
-              allFinished.sort(function(a,b){ return dateValue(b.questionDate||b.dateStatus||b.userStartDate) - dateValue(a.questionDate||a.dateStatus||a.userStartDate); });
-              var lastAny = allFinished[0];
+              // Última sesión del surveyFlow completada (excluye phishing, smishing, etc.)
+              var sfFinished = flowRecords.filter(function(r){ return r.surveyStatus === 'FINISH'; });
+              sfFinished.sort(function(a,b){ return dateValue(b.questionDate||b.dateStatus||b.userStartDate) - dateValue(a.questionDate||a.dateStatus||a.userStartDate); });
+              var lastSf = sfFinished[0];
               rows.noNext.push(Object.assign({}, base, {
-                ultimaSesionCompletada: lastAny ? (lastAny.surveyName || '') : '',
-                surveyTypeId: lastAny ? (lastAny.surveyTypeId || '') : '',
-                fecha: lastAny ? (lastAny.questionDate || lastAny.dateStatus || lastAny.userStartDate || '') : '',
-                nota: 'Welcome completada sin sesiones de ciberconcienciacion',
-                requiereIT: 'Si'
+                ultimaSesionCompletada: lastSf ? (lastSf.surveyName || '') : '',
+                surveyTypeId: lastSf ? (lastSf.surveyTypeId || '') : '',
+                fecha: lastSf ? (lastSf.questionDate || lastSf.dateStatus || lastSf.userStartDate || '') : '',
+                nota: 'Welcome completada sin sesiones de ciberconcienciacion'
               }));
             }
           }
@@ -830,7 +834,6 @@
     var noNextOk = r.noNext.filter(function (x) { return x.problema === 'No'; }).length;
     var dupUsers = {};
     r.duplicates.forEach(function (x) { dupUsers[String(x.stakeholderId)] = true; });
-    var dupIt = r.duplicates.filter(function (x) { return x.requiereIT === 'Si'; }).length;
 
     var html = '';
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">';
@@ -943,7 +946,7 @@
       ['Politica', 'SurveyFlow principal'],
       ['Incluir fuera del surveyFlow', $('ksa-check-outside') && $('ksa-check-outside').checked ? 'Si' : 'No'],
       ['Sesiones duplicadas a eliminar', r.duplicates.length],
-      ['Duplicados que requieren IT', r.duplicates.filter(function (x) { return x.requiereIT === 'Si'; }).length],
+
       ['Sin siguiente sesion problema', noNextProblem],
       ['Sin welcome', r.noWelcome.length],
       ['Sin ninguna sesion', r.noSessions.length],
@@ -1432,7 +1435,7 @@
               '</div>' +
               '<div>' +
                 '<label style="font-size:11px;color:#78350f;display:block;margin-bottom:3px">Forzar usuario ID</label>' +
-                '<input id="ksa-sample-user-id" type="text" value="350863,388613,388632" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
+                '<input id="ksa-sample-user-id" type="text" value="350863,388613,388632,94497,95210" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
               '</div>' +
             '</div>' +
           '</div>' +
