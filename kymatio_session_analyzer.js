@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-26-exclusion-filters';
+  var VERSION = 'session-analyzer-27-sample-toggle';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -1096,7 +1096,10 @@
       var allCompanies = companiesData.records || [];
 
       // Modo muestreo
-      var sampleLimit = parseInt($('ksa-sample-limit') && $('ksa-sample-limit').value || '', 10);
+      // Solo aplicar muestreo si el toggle está ON
+      var sampleToggle = document.getElementById('ksa-sample-toggle');
+      var sampleActive = sampleToggle && sampleToggle.textContent === 'ON';
+      var sampleLimit = sampleActive ? parseInt($('ksa-sample-limit') && $('ksa-sample-limit').value || '', 10) : NaN;
       var forcedCompanyIds = ($('ksa-sample-company') && $('ksa-sample-company').value || '')
         .split(',').map(function(s){ return parseInt(s.trim(), 10); }).filter(function(n){ return !isNaN(n) && n > 0; });
       var isSampleMode = !isNaN(sampleLimit) && sampleLimit > 0;
@@ -1490,9 +1493,12 @@
             '</div>' +
           '</div>' +
 
-          '<details style="margin-bottom:14px">' +
-            '<summary style="cursor:pointer;font-size:11px;font-weight:800;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;list-style:none">&#9658; MODO MUESTREO <span style="font-weight:400;font-style:italic">(clic para activar)</span></summary>' +
-            '<div style="background:#fffbeb;border:1px solid #fde68a;border-top:none;border-radius:0 0 8px 8px;padding:12px">' +
+          '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;margin-bottom:14px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;cursor:pointer" onclick="var b=document.getElementById(\'ksa-sample-body\');var on=document.getElementById(\'ksa-sample-toggle\');var active=b.style.display!==\'none\';b.style.display=active?\'none\':\'block\';on.textContent=active?\'OFF\':\'ON\';on.style.background=active?\'#94a3b8\':\'#f59e0b\';">' +
+              '<span style="font-size:11px;font-weight:800;color:#92400e">MODO MUESTREO</span>' +
+              '<span id="ksa-sample-toggle" style="background:#94a3b8;color:white;font-size:10px;font-weight:800;padding:3px 10px;border-radius:999px;min-width:32px;text-align:center">OFF</span>' +
+            '</div>' +
+            '<div id="ksa-sample-body" style="display:none;padding:0 12px 12px;border-top:1px solid #fde68a">' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
               '<div>' +
                 '<label style="font-size:11px;color:#78350f;display:block;margin-bottom:3px">Max. empresas</label>' +
@@ -1512,7 +1518,7 @@
               '</div>' +
             '</div>' +
             '</div>' +
-          '</details>' +
+          '</div>' +
           '<div id="ksa-all-progress" style="display:none;margin-bottom:10px">' +
             '<div style="background:#e2e8f0;border-radius:999px;height:6px;overflow:hidden">' +
               '<div id="ksa-all-progress-bar" style="height:100%;background:#7c3aed;width:0%;transition:width .3s"></div>' +
