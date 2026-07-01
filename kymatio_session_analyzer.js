@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-24-noNext-improvements';
+  var VERSION = 'session-analyzer-25-multi-company-sample';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -1097,20 +1097,20 @@
 
       // Modo muestreo
       var sampleLimit = parseInt($('ksa-sample-limit') && $('ksa-sample-limit').value || '', 10);
-      var forcedCompanyId = ($('ksa-sample-company') && $('ksa-sample-company').value || '').trim();
+      var forcedCompanyIds = ($('ksa-sample-company') && $('ksa-sample-company').value || '')
+        .split(',').map(function(s){ return parseInt(s.trim(), 10); }).filter(function(n){ return !isNaN(n) && n > 0; });
       var isSampleMode = !isNaN(sampleLimit) && sampleLimit > 0;
 
       if (isSampleMode) {
         var sampled = allCompanies.slice(0, sampleLimit);
-        // Añadir empresa forzada si no está ya incluida
-        if (forcedCompanyId) {
-          var forcedCid = parseInt(forcedCompanyId, 10);
-          var alreadyIn = sampled.some(function(c){ return c.stakeholderId === forcedCid; });
+        // Añadir todas las empresas forzadas si no están ya incluidas
+        forcedCompanyIds.forEach(function(fcid) {
+          var alreadyIn = sampled.some(function(c){ return c.stakeholderId === fcid; });
           if (!alreadyIn) {
-            var forcedEntry = allCompanies.find(function(c){ return c.stakeholderId === forcedCid; });
+            var forcedEntry = allCompanies.find(function(c){ return c.stakeholderId === fcid; });
             if (forcedEntry) sampled.push(forcedEntry);
           }
-        }
+        });
         allCompanies = sampled;
       }
 
@@ -1431,7 +1431,7 @@
               '</div>' +
               '<div>' +
                 '<label style="font-size:11px;color:#78350f;display:block;margin-bottom:3px">Forzar empresa ID</label>' +
-                '<input id="ksa-sample-company" type="text" value="335809" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
+                '<input id="ksa-sample-company" type="text" value="335809,75404" placeholder="ej: 335809,75404" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
               '</div>' +
               '<div>' +
                 '<label style="font-size:11px;color:#78350f;display:block;margin-bottom:3px">Forzar usuario ID</label>' +
