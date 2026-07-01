@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-25-multi-company-sample';
+  var VERSION = 'session-analyzer-26-exclusion-filters';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -1114,6 +1114,30 @@
         allCompanies = sampled;
       }
 
+      // Filtro por nombre de empresa
+      var exclNameWords = [];
+      if ($('ksa-excl-name-demo') && $('ksa-excl-name-demo').checked) exclNameWords.push('demo');
+      if ($('ksa-excl-name-test') && $('ksa-excl-name-test').checked) exclNameWords.push('test');
+      if ($('ksa-excl-name-poc') && $('ksa-excl-name-poc').checked) exclNameWords.push('poc');
+
+      // Tags a excluir (tipo de entidad)
+      var exclTags = [];
+      if ($('ksa-excl-tag-internal') && $('ksa-excl-tag-internal').checked) exclTags.push('internal');
+      if ($('ksa-excl-tag-demo') && $('ksa-excl-tag-demo').checked) exclTags.push('demo');
+      if ($('ksa-excl-tag-test') && $('ksa-excl-tag-test').checked) exclTags.push('test');
+      if ($('ksa-excl-tag-poc') && $('ksa-excl-tag-poc').checked) exclTags.push('poc');
+
+      if (exclNameWords.length) {
+        var beforeFilter = allCompanies.length;
+        allCompanies = allCompanies.filter(function(c) {
+          var nameLower = (c.name || '').toLowerCase();
+          // Permitir siempre empresas forzadas
+          if (forcedCompanyIds.indexOf(c.stakeholderId) >= 0) return true;
+          return !exclNameWords.some(function(w) { return nameLower.indexOf(w) >= 0; });
+        });
+        setStatus('Filtro por nombre: ' + (beforeFilter - allCompanies.length) + ' empresas excluidas.', 'info');
+      }
+
       var total = allCompanies.length;
       setStatus((isSampleMode ? '[MUESTREO] ' : '') + 'Empresas a analizar: ' + total + '. Iniciando...', 'info');
 
@@ -1141,6 +1165,21 @@
           var sf = journey.surveyflow || journey.surveyFlow || null;
 
           if (!sf || !Array.isArray(sf)) { allResults.skipped++; continue; }
+
+          // Filtro por tag "tipo de entidad" — viene en los tags de company (ids 9 y 10)
+          if (exclTags.length) {
+            var compTags = compData.records && compData.records.tags || {};
+            // Tags 9 y 10 son de empresa — buscar si tiene algún valor excluido
+            var compTagValues = [];
+            [9, 10].forEach(function(tid) {
+              var vals = compTags[String(tid)];
+              if (Array.isArray(vals)) vals.forEach(function(v){ compTagValues.push((v||'').toLowerCase()); });
+            });
+            var isExcluded = exclTags.some(function(et) {
+              return compTagValues.some(function(tv){ return tv === et.toLowerCase(); });
+            });
+            if (isExcluded && forcedCompanyIds.indexOf(cid) < 0) { allResults.skipped++; continue; }
+          }
 
           // Verificar si tiene welcome en el surveyFlow
           var hasWelcome = sf.some(function(n) {
@@ -1240,7 +1279,7 @@
   }
 
   async function apiGetForCompany(cid) {
-    return apiGet('/admin/stakeholders/companies/' + encodeURIComponent(cid) + '?environment=true&journey=true&services=true');
+    return apiGet('/admin/stakeholders/companies/' + encodeURIComponent(cid) + '?environment=true&journey=true&services=true&tags=true');
   }
 
   function buildCompanyState(sf) {
@@ -1418,8 +1457,42 @@
             '&#x2022; Usuarios sin welcome<br><br>' +
             '<strong>Se ignoran</strong> empresas sin surveyFlow o sin KYMATIO_WELCOME en el flujo.' +
           '</div>' +
-          '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;margin-bottom:14px">' +
-            '<div style="font-size:11px;font-weight:800;color:#92400e;margin-bottom:10px">MODO MUESTREO <span style="font-weight:400;font-style:italic">(dejar vacío para analizar todo)</span></div>' +
+          '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:14px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+              '<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase">Filtros de exclusi&#243;n</div>' +
+            '</div>' +
+            '<div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:5px">Excluir por nombre de empresa:</div>' +
+            '<div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap">' +
+              '<label style="display:flex;gap:6px;align-items:center;font-size:12px;color:#475569;cursor:pointer">' +
+                '<input type="checkbox" id="ksa-excl-name-demo" checked style="cursor:pointer"> DEMO' +
+              '</label>' +
+              '<label style="display:flex;gap:6px;align-items:center;font-size:12px;color:#475569;cursor:pointer">' +
+                '<input type="checkbox" id="ksa-excl-name-test" checked style="cursor:pointer"> TEST' +
+              '</label>' +
+              '<label style="display:flex;gap:6px;align-items:center;font-size:12px;color:#475569;cursor:pointer">' +
+                '<input type="checkbox" id="ksa-excl-name-poc" checked style="cursor:pointer"> POC' +
+              '</label>' +
+            '</div>' +
+            '<div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:5px">Excluir por tag \"tipo de entidad\":</div>' +
+            '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+              '<label style="display:flex;gap:6px;align-items:center;font-size:12px;color:#475569;cursor:pointer">' +
+                '<input type="checkbox" id="ksa-excl-tag-internal" checked style="cursor:pointer"> internal' +
+              '</label>' +
+              '<label style="display:flex;gap:6px;align-items:center;font-size:12px;color:#475569;cursor:pointer">' +
+                '<input type="checkbox" id="ksa-excl-tag-demo" checked style="cursor:pointer"> Demo' +
+              '</label>' +
+              '<label style="display:flex;gap:6px;align-items:center;font-size:12px;color:#475569;cursor:pointer">' +
+                '<input type="checkbox" id="ksa-excl-tag-test" checked style="cursor:pointer"> Test' +
+              '</label>' +
+              '<label style="display:flex;gap:6px;align-items:center;font-size:12px;color:#475569;cursor:pointer">' +
+                '<input type="checkbox" id="ksa-excl-tag-poc" checked style="cursor:pointer"> PoC' +
+              '</label>' +
+            '</div>' +
+          '</div>' +
+
+          '<details style="margin-bottom:14px">' +
+            '<summary style="cursor:pointer;font-size:11px;font-weight:800;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;list-style:none">&#9658; MODO MUESTREO <span style="font-weight:400;font-style:italic">(clic para activar)</span></summary>' +
+            '<div style="background:#fffbeb;border:1px solid #fde68a;border-top:none;border-radius:0 0 8px 8px;padding:12px">' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
               '<div>' +
                 '<label style="font-size:11px;color:#78350f;display:block;margin-bottom:3px">Max. empresas</label>' +
@@ -1438,7 +1511,8 @@
                 '<input id="ksa-sample-user-id" type="text" value="350863,388613,388632,94497,95210" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
               '</div>' +
             '</div>' +
-          '</div>' +
+            '</div>' +
+          '</details>' +
           '<div id="ksa-all-progress" style="display:none;margin-bottom:10px">' +
             '<div style="background:#e2e8f0;border-radius:999px;height:6px;overflow:hidden">' +
               '<div id="ksa-all-progress-bar" style="height:100%;background:#7c3aed;width:0%;transition:width .3s"></div>' +
