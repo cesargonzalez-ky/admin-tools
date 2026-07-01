@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-21-sample-users';
+  var VERSION = 'session-analyzer-22-clean-tabs';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -1353,65 +1353,91 @@
     div.style.cssText = 'position:fixed;top:0;right:0;width:560px;height:100vh;background:white;z-index:2147483647;box-shadow:-4px 0 24px rgba(0,0,0,.18);display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#1a202c;font-size:13px';
 
     div.innerHTML =
+      // ── Header ──────────────────────────────────────────────────────────────
       '<div style="background:#1e293b;color:white;padding:14px 18px;display:flex;align-items:center;justify-content:space-between">' +
         '<div><div style="font-weight:800;font-size:15px">Kymatio Session Analyzer</div><div style="font-size:10px;color:#cbd5e1">' + esc(VERSION) + '</div></div>' +
         '<button id="ksa-close" style="background:none;border:none;color:white;font-size:24px;line-height:1;cursor:pointer">&times;</button>' +
       '</div>' +
+
+      // ── Contenido principal ─────────────────────────────────────────────────
       '<div style="overflow:auto;flex:1;padding:16px 18px">' +
-        '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:11px 13px;margin-bottom:12px">' +
-          '<div style="display:flex;align-items:center;gap:10px">' +
-            '<div style="flex:1;min-width:0">' +
-              '<div style="font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase">Empresa activa</div>' +
-              '<div id="ksa-company" style="font-size:16px;font-weight:800;color:#166534;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Detectando...</div>' +
-            '</div>' +
-            '<button id="ksa-refresh-company" style="background:#166534;color:white;border:none;border-radius:7px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap">Actualizar compania</button>' +
-          '</div>' +
+
+        // Selector de modo (siempre visible)
+        '<div style="display:flex;gap:0;margin-bottom:16px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">' +
+          '<button id="ksa-tab-one" style="flex:1;padding:10px;border:none;background:#1e293b;color:white;font-weight:700;font-size:13px;cursor:pointer">1 empresa</button>' +
+          '<button id="ksa-tab-all" style="flex:1;padding:10px;border:none;background:#f8fafc;color:#64748b;font-weight:600;font-size:13px;cursor:pointer">&#127758; Todas las empresas</button>' +
         '</div>' +
+
         '<div id="ksa-status"></div>' +
-        
-        '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:12px">' +
-          '<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:8px">SurveyFlow detectado</div>' +
-          '<div id="ksa-surveyflow-info"><div style="color:#94a3b8">Cargando...</div></div>' +
+
+        // ── Panel: 1 empresa ──────────────────────────────────────────────────
+        '<div id="ksa-panel-one">' +
+          '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:11px 13px;margin-bottom:12px">' +
+            '<div style="display:flex;align-items:center;gap:10px">' +
+              '<div style="flex:1;min-width:0">' +
+                '<div style="font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase">Empresa activa</div>' +
+                '<div id="ksa-company" style="font-size:16px;font-weight:800;color:#166534;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Detectando...</div>' +
+              '</div>' +
+              '<button id="ksa-refresh-company" style="background:#166534;color:white;border:none;border-radius:7px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap">Actualizar compania</button>' +
+            '</div>' +
+          '</div>' +
+          '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:12px">' +
+            '<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:8px">SurveyFlow detectado</div>' +
+            '<div id="ksa-surveyflow-info"><div style="color:#94a3b8">Cargando...</div></div>' +
+          '</div>' +
+          '<div id="ksa-progress" style="display:none;margin-bottom:12px">' +
+            '<div style="height:9px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-bottom:6px"><div id="ksa-bar" style="height:100%;width:0%;background:#1e293b;border-radius:999px"></div></div>' +
+            '<div id="ksa-progress-text" style="font-size:12px;color:#64748b">0/0</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;margin-bottom:10px">' +
+            '<button id="ksa-run" disabled style="flex:1;background:#1e293b;color:white;border:none;border-radius:8px;padding:10px;font-weight:800;cursor:pointer;opacity:.9">Lanzar analisis</button>' +
+            '<button id="ksa-cancel" style="display:none;background:white;border:1px solid #e2e8f0;color:#475569;border-radius:8px;padding:10px;font-weight:700;cursor:pointer">Cancelar</button>' +
+          '</div>' +
         '</div>' +
-        '<div id="ksa-progress" style="display:none;margin-bottom:12px">' +
-          '<div style="height:9px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-bottom:6px"><div id="ksa-bar" style="height:100%;width:0%;background:#1e293b;border-radius:999px"></div></div>' +
-          '<div id="ksa-progress-text" style="font-size:12px;color:#64748b">0/0</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:8px;margin-bottom:10px">' +
-          '<button id="ksa-run" disabled style="flex:1;background:#1e293b;color:white;border:none;border-radius:8px;padding:10px;font-weight:800;cursor:pointer;opacity:.9">Lanzar analisis</button>' +
-          '<button id="ksa-cancel" style="display:none;background:white;border:1px solid #e2e8f0;color:#475569;border-radius:8px;padding:10px;font-weight:700;cursor:pointer">Cancelar</button>' +
-        '</div>' +
-        '</div>' +  // end ksa-panel-one
+
+        // ── Panel: Todas las empresas ─────────────────────────────────────────
         '<div id="ksa-panel-all" style="display:none">' +
-          '<div style="background:#f3f0ff;border:1px solid #c4b5fd;border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px;color:#5b21b6;line-height:1.5">' +
-            '<strong>Pol&#237;tica de an&#225;lisis:</strong> duplicados de cyber &bull; sin siguiente sesi&#243;n de cyber &bull; sin welcome.<br>' +
-            'Se ignoran empresas sin surveyFlow o sin KYMATIO_WELCOME en el flujo.' +
+          '<div style="background:#f3f0ff;border:1px solid #c4b5fd;border-radius:10px;padding:14px;margin-bottom:14px;font-size:12px;color:#5b21b6;line-height:1.6">' +
+            '<div style="font-size:13px;font-weight:800;color:#5b21b6;margin-bottom:8px">&#127758; An&#225;lisis de todas las empresas</div>' +
+            '<strong>Pol&#237;tica aplicada:</strong><br>' +
+            '&#x2022; Sesiones duplicadas de ciberconcienciaci&#243;n<br>' +
+            '&#x2022; Usuarios sin siguiente sesi&#243;n en la rama de cyber<br>' +
+            '&#x2022; Usuarios sin welcome<br><br>' +
+            '<strong>Se ignoran</strong> empresas sin surveyFlow o sin KYMATIO_WELCOME en el flujo.' +
           '</div>' +
-          '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin-bottom:10px">' +
-            '<div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:6px">MODO MUESTREO (opcional)</div>' +
-            '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">' +
-              '<label style="font-size:11px;color:#78350f;white-space:nowrap">Max empresas:</label>' +
-              '<input id="ksa-sample-limit" type="number" min="1" max="497" placeholder="ej: 10" style="width:70px;padding:5px 7px;border:1px solid #fde68a;border-radius:5px;font-size:12px">' +
+          '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;margin-bottom:14px">' +
+            '<div style="font-size:11px;font-weight:800;color:#92400e;margin-bottom:10px">MODO MUESTREO <span style="font-weight:400;font-style:italic">(dejar vacío para analizar todo)</span></div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+              '<div>' +
+                '<label style="font-size:11px;color:#78350f;display:block;margin-bottom:3px">Max. empresas</label>' +
+                '<input id="ksa-sample-limit" type="number" min="1" max="497" value="10" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
+              '</div>' +
+              '<div>' +
+                '<label style="font-size:11px;color:#78350f;display:block;margin-bottom:3px">Max. usuarios/empresa</label>' +
+                '<input id="ksa-sample-users" type="number" min="1" value="20" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
+              '</div>' +
+              '<div>' +
+                '<label style="font-size:11px;color:#78350f;display:block;margin-bottom:3px">Forzar empresa ID</label>' +
+                '<input id="ksa-sample-company" type="text" value="335809" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
+              '</div>' +
+              '<div>' +
+                '<label style="font-size:11px;color:#78350f;display:block;margin-bottom:3px">Forzar usuario ID</label>' +
+                '<input id="ksa-sample-user-id" type="text" value="350863" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
+              '</div>' +
             '</div>' +
-            '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">' +
-              '<label style="font-size:11px;color:#78350f;white-space:nowrap">Forzar empresa ID:</label>' +
-              '<input id="ksa-sample-company" type="text" placeholder="ej: 335809" style="width:90px;padding:5px 7px;border:1px solid #fde68a;border-radius:5px;font-size:12px">' +
+          '</div>' +
+          '<div id="ksa-all-progress" style="display:none;margin-bottom:10px">' +
+            '<div style="background:#e2e8f0;border-radius:999px;height:6px;overflow:hidden">' +
+              '<div id="ksa-all-progress-bar" style="height:100%;background:#7c3aed;width:0%;transition:width .3s"></div>' +
             '</div>' +
-            '<div style="display:flex;gap:8px;align-items:center">' +
-              '<label style="font-size:11px;color:#78350f;white-space:nowrap">Max usuarios/empresa:</label>' +
-              '<input id="ksa-sample-users" type="number" min="1" placeholder="todos" style="width:70px;padding:5px 7px;border:1px solid #fde68a;border-radius:5px;font-size:12px">' +
-              '<span style="font-size:10px;color:#92400e">(incluye el usuario forzado)</span>' +
-            '</div>' +
-            '<div style="display:flex;gap:8px;align-items:center;margin-top:6px">' +
-              '<label style="font-size:11px;color:#78350f;white-space:nowrap">Forzar usuario ID:</label>' +
-              '<input id="ksa-sample-user-id" type="text" placeholder="ej: 350863" style="width:90px;padding:5px 7px;border:1px solid #fde68a;border-radius:5px;font-size:12px">' +
-            '</div>' +
-            '<div style="font-size:10px;color:#92400e;margin-top:5px">Empresa forzada: siempre incluida. Usuario forzado: siempre incluido en su empresa.</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;margin-bottom:10px">' +
+            '<button id="ksa-run-all" style="flex:1;background:#7c3aed;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer">&#9654; Lanzar an&#225;lisis</button>' +
+            '<button id="ksa-cancel" style="display:none;background:white;border:1px solid #e2e8f0;color:#475569;border-radius:8px;padding:10px;font-weight:700;cursor:pointer">Cancelar</button>' +
           '</div>' +
         '</div>' +
-        '<button id="ksa-run-all" style="width:100%;background:#7c3aed;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer;margin-bottom:6px">&#127758; Analizar TODAS las empresas</button>' +
-        '<div style="font-size:11px;color:#64748b;text-align:center;margin-bottom:12px">Pol\u00edtica: duplicados + sin siguiente sesi\u00f3n de cyber + sin welcome. Solo empresas con surveyFlow y welcome detectado.</div>' +
-        '<div id="ksa-all-progress" style="display:none;margin-bottom:10px">' +'<div style="background:#e2e8f0;border-radius:999px;height:6px;overflow:hidden">' +'<div id="ksa-all-progress-bar" style="height:100%;background:#7c3aed;width:0%;transition:width .3s"></div>' +'</div></div>' +'<div id="ksa-results"></div>' +
+
+        '<div id="ksa-results"></div>' +
       '</div>';
 
     document.body.appendChild(div);
@@ -1427,16 +1453,12 @@
       $('ksa-tab-all').style.background = '#f8fafc'; $('ksa-tab-all').style.color = '#64748b';
       $('ksa-panel-one').style.display = 'block';
       $('ksa-panel-all').style.display = 'none';
-      $('ksa-run').style.display = 'block';
-      $('ksa-run-all').style.display = 'none';
     };
     $('ksa-tab-all').onclick = function() {
       $('ksa-tab-all').style.background = '#7c3aed'; $('ksa-tab-all').style.color = 'white';
       $('ksa-tab-one').style.background = '#f8fafc'; $('ksa-tab-one').style.color = '#64748b';
       $('ksa-panel-one').style.display = 'none';
       $('ksa-panel-all').style.display = 'block';
-      $('ksa-run').style.display = 'none';
-      $('ksa-run-all').style.display = 'block';
     };
     init();
   }
