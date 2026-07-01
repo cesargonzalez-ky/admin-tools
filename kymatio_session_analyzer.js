@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-22-clean-tabs';
+  var VERSION = 'session-analyzer-23-welcome-pending-fix';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -745,14 +745,22 @@
             // hasSuccessor: sesión futura programada — no reportar
           } else {
             // Sin cyber completada ni pendiente
-            // Solo reportar si el surveyFlow tiene rama de cyber (empresa que debería tener cyber)
+            // Solo reportar si la welcome está FINISH — si no, el usuario aún está en onboarding
             var sfHasCyber = sf.familiesInFlow && sf.familiesInFlow.indexOf(8) >= 0;
-            if (sfHasCyber || flowRecords.length > 0) {
+            var welcomeDone = all.some(function(r){
+              return (Number(r.surveyFamilyId) === opts.welcomeFamilyId || Number(r.surveyTypeId) === 29)
+                     && r.surveyStatus === 'FINISH';
+            });
+            if ((sfHasCyber || flowRecords.length > 0) && welcomeDone) {
+              // Buscar la última sesión completada de cualquier familia para mostrarla
+              var allFinished = all.filter(function(r){ return r.surveyStatus === 'FINISH'; });
+              allFinished.sort(function(a,b){ return dateValue(b.questionDate||b.dateStatus||b.userStartDate) - dateValue(a.questionDate||a.dateStatus||a.userStartDate); });
+              var lastAny = allFinished[0];
               rows.noNext.push(Object.assign({}, base, {
-                ultimaSesionCompletada: '',
-                surveyTypeId: '',
-                fecha: '',
-                nota: 'Sin sesiones de ciberconcienciacion',
+                ultimaSesionCompletada: lastAny ? (lastAny.surveyName || '') : '',
+                surveyTypeId: lastAny ? (lastAny.surveyTypeId || '') : '',
+                fecha: lastAny ? (lastAny.questionDate || lastAny.dateStatus || lastAny.userStartDate || '') : '',
+                nota: 'Welcome completada sin sesiones de ciberconcienciacion',
                 requiereIT: 'Si'
               }));
             }
@@ -1153,14 +1161,16 @@
 
           if (isSampleUsers) {
             var sampledUsers = users.slice(0, userLimit);
-            // Añadir usuario forzado si no está en la muestra
-            if (!isNaN(forcedUserId) && forcedUserId > 0) {
-              var forcedUserIn = sampledUsers.some(function(u){ return u.stakeholderId === forcedUserId; });
-              if (!forcedUserIn) {
-                var forcedUserEntry = users.find(function(u){ return u.stakeholderId === forcedUserId; });
-                if (forcedUserEntry) sampledUsers.push(forcedUserEntry);
+            // Añadir usuarios forzados (lista separada por comas) si no están en la muestra
+            var forcedUserIds = ($('ksa-sample-user-id') && $('ksa-sample-user-id').value || '')
+              .split(',').map(function(s){ return parseInt(s.trim(), 10); }).filter(function(n){ return !isNaN(n) && n > 0; });
+            forcedUserIds.forEach(function(fuid) {
+              var inSample = sampledUsers.some(function(u){ return u.stakeholderId === fuid; });
+              if (!inSample) {
+                var entry = users.find(function(u){ return u.stakeholderId === fuid; });
+                if (entry) sampledUsers.push(entry);
               }
-            }
+            });
             users = sampledUsers;
           }
 
@@ -1422,7 +1432,7 @@
               '</div>' +
               '<div>' +
                 '<label style="font-size:11px;color:#78350f;display:block;margin-bottom:3px">Forzar usuario ID</label>' +
-                '<input id="ksa-sample-user-id" type="text" value="350863" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
+                '<input id="ksa-sample-user-id" type="text" value="350863,388613,388632" style="width:100%;padding:6px 8px;border:1px solid #fde68a;border-radius:6px;font-size:12px;box-sizing:border-box">' +
               '</div>' +
             '</div>' +
           '</div>' +
