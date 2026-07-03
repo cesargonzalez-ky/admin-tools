@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-31-btn-layout-fix';
+  var VERSION = 'session-analyzer-33-impact-1company-free';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -979,12 +979,18 @@
       lastCyberName = lastCyberEntry ? (lastCyberEntry.name || '') : '';
     }
 
+    var hasImpactInFlow = companyHasImpactInFlow(state.surveyFlow);
+
     el.innerHTML =
       '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;color:#166534;font-size:12px;line-height:1.6">' +
       '&#10003; SurveyFlow cargado correctamente.' +
       (lastCyberId
         ? '<br><strong>Ultima sesion de ciberconcienciacion:</strong> ' + esc(lastCyberName || 'surveyTypeId ' + lastCyberId) + ' (' + esc(String(lastCyberId)) + ').'
         : '<br><span style="color:#92400e">No se ha detectado rama de ciberconcienciacion en el flujo.</span>') +
+      '<br><strong>KYMATIO_IMPACT en el flujo:</strong> ' +
+      (hasImpactInFlow
+        ? '<span style="color:#166534">&#10003; Sí — empresa válida para análisis de impacto</span>'
+        : '<span style="color:#92400e">&#10007; No — empresa será ignorada en análisis de impacto</span>') +
       '</div>';
   }
 
@@ -1409,6 +1415,14 @@
 
   function analyzeUserImpact(user, records) {
     var all = Array.isArray(records) ? records : [];
+
+    // Solo reportar si welcome está FINISH — si no, el usuario aún está en onboarding
+    var welcomeDone = all.some(function(r) {
+      return (Number(r.surveyFamilyId) === 11 || Number(r.surveyTypeId) === 29)
+             && r.surveyStatus === 'FINISH';
+    });
+    if (!welcomeDone) return null; // Welcome no completada — ignorar
+
     var hasImpact = all.some(function(r) {
       return IMPACT_SURVEY_TYPE_IDS[String(r.surveyTypeId)];
     });
@@ -1422,11 +1436,6 @@
   async function runImpactAnalysis() {
     if (state.running) return;
     if (!state.companyId) { setStatus('No hay empresa seleccionada.', 'err'); return; }
-    if (!companyHasImpactInFlow(state.surveyFlow)) {
-      setStatus('\u26a0 Esta empresa no tiene KYMATIO_IMPACT en su surveyFlow. Análisis de impacto no aplica.', 'warn');
-      return;
-    }
-
     state.running = true;
     state.cancelled = false;
     $('ksa-run-impact').disabled = true;
