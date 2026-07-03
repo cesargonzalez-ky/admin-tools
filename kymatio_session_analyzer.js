@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-28-toggle-fix';
+  var VERSION = 'session-analyzer-29-impact-mode';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -830,8 +830,6 @@
   function renderSummary() {
     var r = state.results;
     if (!r) return;
-    var noNextProblem = r.noNext.filter(function (x) { return x.problema === 'Si'; }).length;
-    var noNextOk = r.noNext.filter(function (x) { return x.problema === 'No'; }).length;
     var dupUsers = {};
     r.duplicates.forEach(function (x) { dupUsers[String(x.stakeholderId)] = true; });
 
@@ -840,8 +838,8 @@
     html += summaryCard('Usuarios analizados', r.totalUsers);
     html += summaryCard('Duplicados', Object.keys(dupUsers).length + ' usuarios / ' + r.duplicates.length + ' sesiones');
     html += summaryCard('Duplicados con accion IT', dupIt);
-    html += summaryCard('Sin siguiente sesion', noNextProblem);
-    html += summaryCard('No problema / no evaluable', noNextOk);
+    html += summaryCard('Sin siguiente sesion', r.noNext.length);
+    html += summaryCard('Con sucesor / fin de flujo', r.noNext.filter(function(x){ return x.nota && x.nota.indexOf('Sin siguiente') < 0 && x.nota.indexOf('ciberconcienciacion') < 0; }).length);
     html += summaryCard('Sin welcome', r.noWelcome.length);
     html += summaryCard('Sin ninguna sesion', r.noSessions.length);
     html += summaryCard('Errores', r.errors.length);
@@ -935,8 +933,6 @@
     await ensureXlsx();
     var r = state.results;
     var wb = window.XLSX.utils.book_new();
-    var noNextProblem = r.noNext.filter(function (x) { return x.problema === 'Si'; }).length;
-
     window.XLSX.utils.book_append_sheet(wb, aoaToSheet([
       ['Campo', 'Valor'],
       ['Fecha analisis', r.date],
@@ -947,7 +943,7 @@
       ['Incluir fuera del surveyFlow', $('ksa-check-outside') && $('ksa-check-outside').checked ? 'Si' : 'No'],
       ['Sesiones duplicadas a eliminar', r.duplicates.length],
 
-      ['Sin siguiente sesion problema', noNextProblem],
+      ['Sin siguiente sesion', r.noNext.length],
       ['Sin welcome', r.noWelcome.length],
       ['Sin ninguna sesion', r.noSessions.length],
       ['Errores', r.errors.length],
@@ -1398,6 +1394,275 @@
     window.XLSX.writeFile(wb, fname);
   }
 
+
+  // ── Análisis de Impacto ───────────────────────────────────────────────────
+  // surveyTypeIds de KYMATIO_IMPACT
+  var IMPACT_SURVEY_TYPE_IDS = { '60': 1, '63': 1 }; // KYMATIO_IMPACT, KYMATIO_IMPACT_REFRESH
+
+  function companyHasImpactInFlow(sf) {
+    if (!Array.isArray(sf)) return false;
+    return sf.some(function(node) {
+      var next = (node.next || '').toUpperCase();
+      return next === 'KYMATIO_IMPACT' || next === 'KYMATIO_IMPACT_REFRESH';
+    });
+  }
+
+  function analyzeUserImpact(user, records) {
+    var all = Array.isArray(records) ? records : [];
+    var hasImpact = all.some(function(r) {
+      return IMPACT_SURVEY_TYPE_IDS[String(r.surveyTypeId)];
+    });
+    if (!hasImpact) {
+      var base = getUserDisplay(user);
+      return Object.assign({}, base, { nota: 'Sin sesion de impacto asignada' });
+    }
+    return null;
+  }
+
+  async function runImpactAnalysis() {
+    if (state.running) return;
+    if (!state.companyId) { setStatus('No hay empresa seleccionada.', 'err'); return; }
+    if (!companyHasImpactInFlow(state.surveyFlow)) {
+      setStatus('\u26a0 Esta empresa no tiene KYMATIO_IMPACT en su surveyFlow. Análisis de impacto no aplica.', 'warn');
+      return;
+    }
+
+    state.running = true;
+    state.cancelled = false;
+    $('ksa-run-impact').disabled = true;
+    $('ksa-cancel').style.display = 'inline-block';
+    $('ksa-results').innerHTML = '';
+    setStatus('Analizando impacto para ' + state.users.length + ' usuarios...', 'info');
+
+    var noImpact = [];
+    var errors = [];
+    var done = 0;
+    var BATCH = 20;
+
+    for (var i = 0; i < state.users.length; i += BATCH) {
+      if (state.cancelled) break;
+      var batch = state.users.slice(i, i + BATCH);
+      await Promise.all(batch.map(async function(user) {
+        try {
+          var records = await fetchInteractions(user);
+          var row = analyzeUserImpact(user, records);
+          if (row) noImpact.push(row);
+        } catch(e) {
+          errors.push(Object.assign({}, getUserDisplay(user), { error: e.message }));
+        }
+        done++;
+        updateProgress(done, state.users.length);
+      }));
+      await sleep(SLEEP_MS);
+    }
+
+    state.running = false;
+    $('ksa-run-impact').disabled = false;
+    $('ksa-cancel').style.display = 'none';
+    setStatus(
+      (state.cancelled ? 'Cancelado. ' : 'Completado. ') +
+      'Sin impacto: ' + noImpact.length + ' usuarios. Errores: ' + errors.length,
+      state.cancelled ? 'warn' : 'ok'
+    );
+
+    renderImpactSummary(noImpact, errors);
+  }
+
+  async function runImpactAllCompanies() {
+    if (state.running) return;
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2147483648;display:flex;align-items:center;justify-content:center';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:white;border-radius:14px;padding:28px;max-width:420px;width:90%;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;box-shadow:0 20px 60px rgba(0,0,0,.3)';
+    box.innerHTML =
+      '<div style="font-size:16px;font-weight:800;color:#c2410c;margin-bottom:10px">\u{1F504} Análisis de Impacto — Todas las empresas</div>' +
+      '<div style="font-size:13px;color:#475569;line-height:1.6;margin-bottom:20px">' +
+        'Se buscarán empresas con <strong>KYMATIO_IMPACT</strong> en su surveyFlow.<br><br>' +
+        'Para cada empresa, se identificarán los usuarios <strong>sin ninguna sesión de impacto</strong> asignada (en cualquier estado).' +
+      '</div>' +
+      '<div style="display:flex;gap:10px">' +
+        '<button id="ksa-impact-all-cancel" style="flex:1;padding:10px;border:1px solid #e2e8f0;background:white;color:#475569;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Cancelar</button>' +
+        '<button id="ksa-impact-all-confirm" style="flex:1;padding:10px;background:#ea580c;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Lanzar</button>' +
+      '</div>';
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    document.getElementById('ksa-impact-all-cancel').onclick = function() { overlay.remove(); };
+    document.getElementById('ksa-impact-all-confirm').onclick = async function() {
+      overlay.remove();
+      await doRunImpactAllCompanies();
+    };
+  }
+
+  async function doRunImpactAllCompanies() {
+    state.running = true;
+    state.cancelled = false;
+    $('ksa-run-impact-all').disabled = true;
+    $('ksa-cancel').style.display = 'inline-block';
+    $('ksa-results').innerHTML = '';
+    $('ksa-all-progress').style.display = 'block';
+    $('ksa-all-progress-bar').style.width = '0%';
+    setStatus('Cargando empresas...', 'info');
+
+    try {
+      var companiesData = await apiGet('/admin/stakeholders/people/48207/companies');
+      var allCompanies = companiesData.records || [];
+
+      // Aplicar filtros de exclusión (mismos que sesiones)
+      var exclNameWords = [];
+      if ($('ksa-excl-name-demo') && $('ksa-excl-name-demo').checked) exclNameWords.push('demo');
+      if ($('ksa-excl-name-test') && $('ksa-excl-name-test').checked) exclNameWords.push('test');
+      if ($('ksa-excl-name-poc') && $('ksa-excl-name-poc').checked) exclNameWords.push('poc');
+      var exclTags = [];
+      if ($('ksa-excl-tag-internal') && $('ksa-excl-tag-internal').checked) exclTags.push('internal');
+      if ($('ksa-excl-tag-demo') && $('ksa-excl-tag-demo').checked) exclTags.push('demo');
+      if ($('ksa-excl-tag-test') && $('ksa-excl-tag-test').checked) exclTags.push('test');
+      if ($('ksa-excl-tag-poc') && $('ksa-excl-tag-poc').checked) exclTags.push('poc');
+
+      if (exclNameWords.length) {
+        allCompanies = allCompanies.filter(function(c) {
+          var n = (c.name||'').toLowerCase();
+          return !exclNameWords.some(function(w){ return n.indexOf(w) >= 0; });
+        });
+      }
+
+      // Modo muestreo
+      var sampleToggle = document.getElementById('ksa-sample-toggle');
+      var sampleActive = sampleToggle && sampleToggle.textContent === 'ON';
+      var sampleLimit = sampleActive ? parseInt($('ksa-sample-limit') && $('ksa-sample-limit').value || '', 10) : NaN;
+      var forcedCompanyIds = sampleActive ? ($('ksa-sample-company') && $('ksa-sample-company').value || '')
+        .split(',').map(function(s){ return parseInt(s.trim(), 10); }).filter(function(n){ return !isNaN(n) && n > 0; }) : [];
+      var isSampleMode = !isNaN(sampleLimit) && sampleLimit > 0;
+      if (isSampleMode) {
+        var sampled = allCompanies.slice(0, sampleLimit);
+        forcedCompanyIds.forEach(function(fcid) {
+          if (!sampled.some(function(c){ return c.stakeholderId === fcid; })) {
+            var e = allCompanies.find(function(c){ return c.stakeholderId === fcid; });
+            if (e) sampled.push(e);
+          }
+        });
+        allCompanies = sampled;
+      }
+
+      var total = allCompanies.length;
+      var allNoImpact = [];
+      var allErrors = [];
+      var companiesAnalyzed = 0;
+      var usersAnalyzed = 0;
+      var skipped = 0;
+      var BATCH = 20;
+
+      for (var ci = 0; ci < allCompanies.length; ci++) {
+        if (state.cancelled) break;
+        var company = allCompanies[ci];
+        var cid = company.stakeholderId;
+        updateAllProgress(ci + 1, total, usersAnalyzed, company.name || cid);
+
+        try {
+          var compData = await apiGetForCompany(cid);
+          var sf = compData.records && compData.records.journey && (compData.records.journey.surveyflow || compData.records.journey.surveyFlow);
+
+          // Filtro por tags
+          if (exclTags.length) {
+            var compTags = compData.records && compData.records.tags || {};
+            var tagVals = [];
+            [9,10].forEach(function(tid){ var v=compTags[String(tid)]; if(Array.isArray(v)) v.forEach(function(x){ tagVals.push((x||'').toLowerCase()); }); });
+            if (exclTags.some(function(et){ return tagVals.some(function(tv){ return tv===et.toLowerCase(); }); }) && forcedCompanyIds.indexOf(cid)<0) { skipped++; continue; }
+          }
+
+          // Solo empresas con KYMATIO_IMPACT en el surveyFlow
+          if (!companyHasImpactInFlow(sf)) { skipped++; continue; }
+
+          var usersData = await apiGet('/admin/stakeholders/companies/' + encodeURIComponent(cid) + '/people?email=true&login=true');
+          var users = (usersData.records || []).map(normalizeUser).filter(function(u){ return !!u.stakeholderId; });
+          if (!users.length) { skipped++; continue; }
+
+          // Límite de usuarios en modo muestreo
+          var userLimit = sampleActive ? parseInt($('ksa-sample-users') && $('ksa-sample-users').value || '', 10) : NaN;
+          var isSampleUsers = !isNaN(userLimit) && userLimit > 0;
+          if (isSampleUsers) {
+            var sampledU = users.slice(0, userLimit);
+            var forcedUIds = sampleActive ? ($('ksa-sample-user-id') && $('ksa-sample-user-id').value || '')
+              .split(',').map(function(s){ return parseInt(s.trim(),10); }).filter(function(n){ return !isNaN(n)&&n>0; }) : [];
+            forcedUIds.forEach(function(fuid){ if(!sampledU.some(function(u){ return u.stakeholderId===fuid; })){ var e=users.find(function(u){ return u.stakeholderId===fuid; }); if(e) sampledU.push(e); } });
+            users = sampledU;
+          }
+
+          for (var ui = 0; ui < users.length; ui += BATCH) {
+            if (state.cancelled) break;
+            var batch = users.slice(ui, ui + BATCH);
+            await Promise.all(batch.map(async function(user) {
+              try {
+                var records = await fetchInteractions(user);
+                var row = analyzeUserImpact(user, records);
+                if (row) {
+                  row.companyId = cid;
+                  row.companyName = company.name || '';
+                  allNoImpact.push(row);
+                }
+              } catch(e) {
+                allErrors.push({ companyId: cid, companyName: company.name||'', stakeholderId: user.stakeholderId, email: user.email||'', error: e.message });
+              }
+              usersAnalyzed++;
+            }));
+            updateAllProgress(ci + 1, total, usersAnalyzed, company.name || cid);
+            await sleep(SLEEP_MS);
+          }
+          companiesAnalyzed++;
+        } catch(e) {
+          allErrors.push({ companyId: cid, companyName: company.name||'', stakeholderId:'', email:'', error: e.message });
+        }
+      }
+
+      // Exportar Excel
+      await loadXlsx();
+      exportImpactExcel(allNoImpact, allErrors, companiesAnalyzed, total, usersAnalyzed);
+      setStatus(
+        (state.cancelled ? 'Cancelado. ' : '') +
+        'Impacto: ' + companiesAnalyzed + ' empresas, ' + usersAnalyzed + ' usuarios. Sin impacto: ' + allNoImpact.length + '. Omitidas: ' + skipped,
+        state.cancelled ? 'warn' : 'ok'
+      );
+    } catch(e) {
+      setStatus('Error: ' + esc(e.message), 'err');
+    }
+
+    state.running = false;
+    $('ksa-run-impact-all').disabled = false;
+    $('ksa-cancel').style.display = 'none';
+    $('ksa-all-progress').style.display = 'none';
+  }
+
+  function renderImpactSummary(noImpact, errors) {
+    var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">';
+    html += summaryCard('Usuarios analizados', state.users.length);
+    html += summaryCard('Sin sesion de impacto', noImpact.length);
+    html += summaryCard('Errores', errors.length);
+    html += '</div>';
+    html += '<button id="ksa-download-impact" style="width:100%;margin-top:12px;background:#ea580c;color:white;border:none;padding:10px;border-radius:8px;font-weight:700;cursor:pointer">Descargar Excel</button>';
+    $('ksa-results').innerHTML = html;
+    $('ksa-download-impact').onclick = function() {
+      ensureXlsx().then(function() {
+        exportImpactExcel(noImpact, errors, 1, 1, state.users.length);
+      });
+    };
+  }
+
+  function exportImpactExcel(noImpact, errors, companiesAnalyzed, companiesTotal, usersAnalyzed) {
+    var wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, aoaToSheet([
+      ['Campo', 'Valor'],
+      ['Fecha análisis', new Date().toISOString()],
+      ['Empresas analizadas', companiesAnalyzed],
+      ['Empresas totales revisadas', companiesTotal],
+      ['Usuarios analizados', usersAnalyzed],
+      ['Sin sesión de impacto', noImpact.length],
+      ['Errores', errors.length]
+    ]), 'Resumen');
+    window.XLSX.utils.book_append_sheet(wb, jsonToSheet(noImpact), 'Sin Impacto');
+    window.XLSX.utils.book_append_sheet(wb, jsonToSheet(errors), 'Errores');
+    var fname = 'kymatio_impacto_' + new Date().toISOString().slice(0,10) + '.xlsx';
+    window.XLSX.writeFile(wb, fname);
+  }
+
   function createPanel() {
     var old = $('kym-session-analyzer-panel');
     if (old) old.remove();
@@ -1416,8 +1681,14 @@
       // ── Contenido principal ─────────────────────────────────────────────────
       '<div style="overflow:auto;flex:1;padding:16px 18px">' +
 
-        // Selector de modo (siempre visible)
-        '<div style="display:flex;gap:0;margin-bottom:16px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">' +
+        // Selector de modo de análisis
+        '<div style="display:flex;gap:6px;margin-bottom:12px">' +
+          '<button id="ksa-mode-sessions" style="flex:1;padding:9px;border:none;border-radius:8px;background:#1e293b;color:white;font-weight:700;font-size:12px;cursor:pointer">Sesiones</button>' +
+          '<button id="ksa-mode-impact" style="flex:1;padding:9px;border:none;border-radius:8px;background:#f8fafc;color:#64748b;border:1px solid #e2e8f0;font-weight:600;font-size:12px;cursor:pointer">&#128260; Impacto</button>' +
+        '</div>' +
+
+        // Selector de scope (1 empresa / todas) — compartido por ambos modos
+        '<div id="ksa-scope-tabs" style="display:flex;gap:0;margin-bottom:16px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">' +
           '<button id="ksa-tab-one" style="flex:1;padding:10px;border:none;background:#1e293b;color:white;font-weight:700;font-size:13px;cursor:pointer">1 empresa</button>' +
           '<button id="ksa-tab-all" style="flex:1;padding:10px;border:none;background:#f8fafc;color:#64748b;font-weight:600;font-size:13px;cursor:pointer">&#127758; Todas las empresas</button>' +
         '</div>' +
@@ -1525,11 +1796,13 @@
           '</div>' +
           '<div style="display:flex;gap:8px;margin-bottom:10px">' +
             '<button id="ksa-run-all" style="flex:1;background:#7c3aed;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer">&#9654; Lanzar an&#225;lisis</button>' +
+            '<button id="ksa-run-impact" style="display:none;flex:1;background:#ea580c;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer">&#128260; Analizar impacto (1 empresa)</button>' +
+            '<button id="ksa-run-impact-all" style="display:none;flex:1;background:#ea580c;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer">&#128260; Analizar impacto (todas)</button>' +
             '<button id="ksa-cancel" style="display:none;background:white;border:1px solid #e2e8f0;color:#475569;border-radius:8px;padding:10px;font-weight:700;cursor:pointer">Cancelar</button>' +
           '</div>' +
         '</div>' +
 
-        '<div id="ksa-results"></div>' +
+        '<div id="ksa-panel-impact" style="display:none">' +'<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px;margin-bottom:14px;font-size:12px;color:#c2410c;line-height:1.6">' +'<div style="font-size:13px;font-weight:800;color:#c2410c;margin-bottom:8px">&#128260; Análisis de Impacto</div>' +'<strong>Lógica:</strong><br>' +'&#x2022; Comprueba si el surveyFlow tiene sesiones de KYMATIO_IMPACT<br>' +'&#x2022; Si no hay KYMATIO_IMPACT en el flujo, la empresa se ignora<br>' +'&#x2022; Si hay KYMATIO_IMPACT, detecta usuarios sin ninguna sesión de impacto (en cualquier estado)' +'</div>' +'</div>' +'<div id="ksa-results"></div>' +
       '</div>';
 
     document.body.appendChild(div);
@@ -1537,21 +1810,63 @@
     $('ksa-cancel').onclick = function () { state.cancelled = true; setStatus('Cancelando al terminar el lote actual...', 'warn'); };
     $('ksa-run').onclick = runAnalysis;
     $('ksa-refresh-company').onclick = refreshCompany;
+    $('ksa-run-impact').onclick = runImpactAnalysis;
+    $('ksa-run-impact-all').onclick = runImpactAllCompanies;
     $('ksa-run-all').onclick = runAllCompanies;
 
     // Lógica de pestañas
-    $('ksa-tab-one').onclick = function() {
-      $('ksa-tab-one').style.background = '#1e293b'; $('ksa-tab-one').style.color = 'white';
-      $('ksa-tab-all').style.background = '#f8fafc'; $('ksa-tab-all').style.color = '#64748b';
-      $('ksa-panel-one').style.display = 'block';
+    var currentMode = 'sessions'; // 'sessions' | 'impact'
+    var currentScope = 'one'; // 'one' | 'all'
+
+    function updateScopeUI() {
+      var isOne = currentScope === 'one';
+      $('ksa-tab-one').style.background = isOne ? '#1e293b' : '#f8fafc';
+      $('ksa-tab-one').style.color = isOne ? 'white' : '#64748b';
+      $('ksa-tab-all').style.background = isOne ? '#f8fafc' : '#7c3aed';
+      $('ksa-tab-all').style.color = isOne ? '#64748b' : 'white';
+      $('ksa-panel-one').style.display = isOne ? 'block' : 'none';
+      $('ksa-panel-all').style.display = isOne ? 'none' : 'block';
+      // El panel de impacto se superpone al panel de scope
+      var isImpact = currentMode === 'impact';
+      $('ksa-panel-impact').style.display = isImpact ? 'block' : 'none';
+      $('ksa-scope-tabs').style.display = 'flex';
+      // Botones de acción según modo
+      if ($('ksa-run')) $('ksa-run').style.display = (!isImpact && isOne) ? 'block' : 'none';
+      if ($('ksa-run-all')) $('ksa-run-all').style.display = (!isImpact && !isOne) ? 'block' : 'none';
+      if ($('ksa-run-impact')) $('ksa-run-impact').style.display = (isImpact && isOne) ? 'block' : 'none';
+      if ($('ksa-run-impact-all')) $('ksa-run-impact-all').style.display = (isImpact && !isOne) ? 'block' : 'none';
+    }
+
+    $('ksa-mode-sessions').onclick = function() {
+      currentMode = 'sessions';
+      $('ksa-mode-sessions').style.background = '#1e293b'; $('ksa-mode-sessions').style.color = 'white';
+      $('ksa-mode-impact').style.background = '#f8fafc'; $('ksa-mode-impact').style.color = '#64748b';
+      $('ksa-panel-one').style.display = currentScope === 'one' ? 'block' : 'none';
+      $('ksa-panel-all').style.display = currentScope === 'all' ? 'block' : 'none';
+      $('ksa-panel-impact').style.display = 'none';
+      updateScopeUI();
+    };
+    $('ksa-mode-impact').onclick = function() {
+      currentMode = 'impact';
+      $('ksa-mode-impact').style.background = '#ea580c'; $('ksa-mode-impact').style.color = 'white';
+      $('ksa-mode-sessions').style.background = '#f8fafc'; $('ksa-mode-sessions').style.color = '#64748b';
+      $('ksa-panel-one').style.display = 'none';
       $('ksa-panel-all').style.display = 'none';
+      $('ksa-panel-impact').style.display = 'block';
+      updateScopeUI();
+    };
+
+    $('ksa-tab-one').onclick = function() {
+      currentScope = 'one';
+      updateScopeUI();
     };
     $('ksa-tab-all').onclick = function() {
-      $('ksa-tab-all').style.background = '#7c3aed'; $('ksa-tab-all').style.color = 'white';
-      $('ksa-tab-one').style.background = '#f8fafc'; $('ksa-tab-one').style.color = '#64748b';
-      $('ksa-panel-one').style.display = 'none';
-      $('ksa-panel-all').style.display = 'block';
+      currentScope = 'all';
+      updateScopeUI();
     };
+
+    // Estado inicial
+    updateScopeUI();
     init();
   }
 
