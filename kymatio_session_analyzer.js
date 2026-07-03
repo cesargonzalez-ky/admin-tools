@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-30-impact-fixes';
+  var VERSION = 'session-analyzer-31-btn-layout-fix';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -1720,6 +1720,12 @@
           '</div>' +
         '</div>' +
 
+        // Botones de impacto — fuera de los paneles, visibles según modo+scope
+        '<div style="margin-bottom:10px">' +
+          '<button id="ksa-run-impact" style="display:none;width:100%;background:#ea580c;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer">&#128260; Analizar impacto (1 empresa)</button>' +
+          '<button id="ksa-run-impact-all" style="display:none;width:100%;background:#ea580c;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer">&#128260; Analizar impacto (todas las empresas)</button>' +
+        '</div>' +
+
         // ── Panel: Todas las empresas ─────────────────────────────────────────
         '<div id="ksa-panel-all" style="display:none">' +
           '<div style="background:#f3f0ff;border:1px solid #c4b5fd;border-radius:10px;padding:14px;margin-bottom:14px;font-size:12px;color:#5b21b6;line-height:1.6">' +
@@ -1796,8 +1802,6 @@
           '</div>' +
           '<div style="display:flex;gap:8px;margin-bottom:10px">' +
             '<button id="ksa-run-all" style="flex:1;background:#7c3aed;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer">&#9654; Lanzar an&#225;lisis</button>' +
-            '<button id="ksa-run-impact" style="display:none;flex:1;background:#ea580c;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer">&#128260; Analizar impacto (1 empresa)</button>' +
-            '<button id="ksa-run-impact-all" style="display:none;flex:1;background:#ea580c;color:white;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:13px;cursor:pointer">&#128260; Analizar impacto (todas)</button>' +
             '<button id="ksa-cancel" style="display:none;background:white;border:1px solid #e2e8f0;color:#475569;border-radius:8px;padding:10px;font-weight:700;cursor:pointer">Cancelar</button>' +
           '</div>' +
         '</div>' +
