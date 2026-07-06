@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-33-impact-1company-free';
+  var VERSION = 'session-analyzer-36-no-gdpr-suffix-fix';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -290,6 +290,17 @@
     matches.forEach(function (raw) {
       var code = raw.replace(/[^A-Z0-9_]/g, '');
       var info = STANDARD_SURVEY_TYPE_MAP[code];
+
+      // Fallback: si el código no está en el mapa, intentar quitando sufijos personalizados
+      // como _NO_GDPR, _NO_COOKIES, _LIGHT, etc. (variantes de sesiones estándar)
+      if (!info || !info.surveyTypeId) {
+        // Quitar cualquier sufijo que empiece por _ y contenga letras (no números de secuencia)
+        var fallback = code.replace(/_[A-Z][A-Z_]+$/, '');
+        if (fallback !== code) {
+          info = STANDARD_SURVEY_TYPE_MAP[fallback];
+        }
+      }
+
       if (!info || !info.surveyTypeId) return;
 
       var key = String(info.surveyTypeId);
@@ -413,7 +424,13 @@
 
       // Formato real del surveyFlow: {next:'KYMATIO_CODE', repeteable:bool, previous:..., date:...}
       if (typeof x.next === 'string' && x.next.indexOf('KYMATIO_') === 0) {
-        var sfInfo = STANDARD_SURVEY_TYPE_MAP[x.next.toUpperCase()];
+        var nextCode = x.next.toUpperCase();
+        var sfInfo = STANDARD_SURVEY_TYPE_MAP[nextCode];
+        // Fallback: quitar sufijos personalizados (_NO_GDPR, etc.)
+        if (!sfInfo) {
+          var fallbackCode = nextCode.replace(/_[A-Z][A-Z_]+$/, '');
+          if (fallbackCode !== nextCode) sfInfo = STANDARD_SURVEY_TYPE_MAP[fallbackCode];
+        }
         if (sfInfo && sfInfo.surveyTypeId) {
           var sfKey = String(sfInfo.surveyTypeId);
           if (!seenType[sfKey]) {
@@ -446,17 +463,24 @@
     state.surveyTypesInFlow = [];
     state.surveyTypeSetInFlow = {};
     state.repeatableSurveyTypeSet = {};
-    state.surveyTypeHasSuccessor = {}; // surveyTypeId -> true si hay un nodo que lo tiene como previous
+    state.surveyTypeHasSuccessor = {};
     state.familiesInFlow = [];
     state.lastSurveyTypeIdInFlow = null;
     state.lastSurveyNameInFlow = '';
     state.lastCyberSurveyTypeIdInFlow = null;
     state.surveyFlowParseWarning = false;
+    state.activeServices = {};
 
     try {
       var data = await apiGet('/admin/stakeholders/companies/' + encodeURIComponent(state.companyId) + '?environment=true&journey=true&services=true');
       var company = data.records || data;
       var journey = company && company.journey || {};
+
+      // Guardar servicios activos (para verificar si Impacto está activado)
+      var svcDist = (company.services && company.services.distribution) || {};
+      var allSvcIds = (svcDist.USER || []).concat(svcDist.CONTROLLER || []).concat(svcDist.ADMIN || []);
+      state.activeServices = {};
+      allSvcIds.forEach(function(id){ state.activeServices[String(id)] = true; });
       var sf = journey.surveyflow || journey.surveyFlow || journey.flow || null;
       state.surveyFlow = sf;
       state.surveyTypesInFlow = collectSurveyTypes(sf || journey);
@@ -486,6 +510,11 @@
           if (!prev || typeof prev !== 'string') return;
           var prevCode = prev.toUpperCase();
           var prevInfo = STANDARD_SURVEY_TYPE_MAP[prevCode];
+          // Fallback para códigos con sufijos personalizados
+          if (!prevInfo) {
+            var prevFallback = prevCode.replace(/_[A-Z][A-Z_]+$/, '');
+            if (prevFallback !== prevCode) prevInfo = STANDARD_SURVEY_TYPE_MAP[prevFallback];
+          }
           if (prevInfo && prevInfo.surveyTypeId) {
             // Marcar si el nodo previo es cyber (familyId 8) o está en la rama
             // (el sucesor de cyber puede ser no-cyber, pero lo que importa es que
@@ -837,7 +866,6 @@
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">';
     html += summaryCard('Usuarios analizados', r.totalUsers);
     html += summaryCard('Duplicados', Object.keys(dupUsers).length + ' usuarios / ' + r.duplicates.length + ' sesiones');
-    html += summaryCard('Duplicados con accion IT', dupIt);
     html += summaryCard('Sin siguiente sesion', r.noNext.length);
     html += summaryCard('Con sucesor / fin de flujo', r.noNext.filter(function(x){ return x.nota && x.nota.indexOf('Sin siguiente') < 0 && x.nota.indexOf('ciberconcienciacion') < 0; }).length);
     html += summaryCard('Sin welcome', r.noWelcome.length);
@@ -989,7 +1017,11 @@
         : '<br><span style="color:#92400e">No se ha detectado rama de ciberconcienciacion en el flujo.</span>') +
       '<br><strong>KYMATIO_IMPACT en el flujo:</strong> ' +
       (hasImpactInFlow
-        ? '<span style="color:#166534">&#10003; Sí — empresa válida para análisis de impacto</span>'
+        ? '<span style="color:#166534">&#10003; Sí</span>'
+        : '<span style="color:#92400e">&#10007; No</span>') +
+      '<br><strong>Servicio Impacto (id 12) activo:</strong> ' +
+      (state.activeServices && state.activeServices['12']
+        ? '<span style="color:#166534">&#10003; Sí</span>'
         : '<span style="color:#92400e">&#10007; No — empresa será ignorada en análisis de impacto</span>') +
       '</div>';
   }
@@ -1436,6 +1468,11 @@
   async function runImpactAnalysis() {
     if (state.running) return;
     if (!state.companyId) { setStatus('No hay empresa seleccionada.', 'err'); return; }
+    // Comprobar servicio de Impacto activo (id 12) — solo avisar, no bloquear en 1 empresa
+    if (state.activeServices && !state.activeServices['12']) {
+      setStatus('\u26a0 El servicio de Impacto (id 12) no está activo en esta empresa. Se analiza igualmente.', 'warn');
+    }
+
     state.running = true;
     state.cancelled = false;
     $('ksa-run-impact').disabled = true;
@@ -1578,7 +1615,11 @@
             if (exclTags.some(function(et){ return tagVals.some(function(tv){ return tv===et.toLowerCase(); }); }) && forcedCompanyIds.indexOf(cid)<0) { skipped++; continue; }
           }
 
-          // Solo empresas con KYMATIO_IMPACT en el surveyFlow
+          // Solo empresas con servicio Impacto (id 12) activo Y KYMATIO_IMPACT en el surveyFlow
+          var compSvcDist = (compData.records && compData.records.services && compData.records.services.distribution) || {};
+          var compAllSvcs = (compSvcDist.USER||[]).concat(compSvcDist.CONTROLLER||[]).concat(compSvcDist.ADMIN||[]);
+          var hasImpactService = compAllSvcs.indexOf(12) >= 0;
+          if (!hasImpactService) { skipped++; continue; }
           if (!companyHasImpactInFlow(sf)) { skipped++; continue; }
 
           var usersData = await apiGet('/admin/stakeholders/companies/' + encodeURIComponent(cid) + '/people?email=true&login=true');
