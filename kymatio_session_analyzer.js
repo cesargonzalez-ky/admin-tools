@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-36-no-gdpr-suffix-fix';
+  var VERSION = 'session-analyzer-37-isinsurveyflow-fix';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -594,12 +594,13 @@
     return (FAMILY_NAMES[id] || ('Familia ' + id)) + ' (' + id + ')';
   }
 
-  function isInSurveyFlow(record) {
-    return !!(record && state.surveyTypeSetInFlow[String(Number(record.surveyTypeId))]);
+  function isInSurveyFlow(record, sfState) {
+    var s = sfState || state;
+    return !!(record && s.surveyTypeSetInFlow[String(Number(record.surveyTypeId))]);
   }
 
-  function isSystemSession(record) {
-    return !!(record && SYSTEM_SURVEY_TYPE_IDS[Number(record.surveyTypeId)] && !isInSurveyFlow(record));
+  function isSystemSession(record, sfState) {
+    return !!(record && SYSTEM_SURVEY_TYPE_IDS[Number(record.surveyTypeId)] && !isInSurveyFlow(record, sfState));
   }
 
   function dateValue(v) {
@@ -708,7 +709,7 @@
     if (opts.includeOutsideSurveyFlow) {
       all.forEach(function(r) {
         if (sf.surveyTypeSetInFlow[String(Number(r.surveyTypeId))]) return;
-        if (isSystemSession(r)) return;
+        if (isSystemSession(r, sf)) return;
         if (Number(r.surveyFamilyId) === opts.welcomeFamilyId) return;
         flowRecords.push(r);
       });
