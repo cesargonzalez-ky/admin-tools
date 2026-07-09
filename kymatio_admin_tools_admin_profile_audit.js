@@ -194,8 +194,7 @@
         Email: String(user.email || user.login || ''),
         Perfiles: profiles.join(', '),
         Idioma: getLanguage(user),
-        'Nombre de empresa': company.name,
-        'Tipo de Empresa': getCompanyType(company)
+        'Nombre de empresa': company.name
       };
     }
 
@@ -334,6 +333,7 @@
 
           var row = buildResultRow(user, company, profiles);
           row['Tipo de Entidad'] = tipoEntidad;
+          row['Estado'] = /eliminad/i.test(company.name) ? 'Eliminada' : 'Activa';
           resultRows.push(row);
         });
       } catch (e) {
