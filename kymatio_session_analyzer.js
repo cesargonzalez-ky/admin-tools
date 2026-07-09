@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-37-isinsurveyflow-fix';
+  var VERSION = 'session-analyzer-38-type-equivalences';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -17,6 +17,14 @@
 
   // Sesiones tecnicas/sistema que pueden quedar en PROGRESS de forma permanente.
   // Desde v03 solo se ignoran si NO forman parte del surveyFlow real de la empresa.
+
+  // Equivalencias entre surveyTypeIds con sufijo (_NO_GDPR) y sus versiones base
+  // Si el surveyFlow usa el 114 pero las interacciones asignan el 12, son equivalentes
+  // Equivalencias: IDs sufijados (_NO_GDPR) <-> IDs base
+  // Ej: 114 (CYBERSECURITY001_NO_GDPR) <-> 12 (CYBERSECURITY001)
+  var SURVEY_TYPE_EQUIVALENCES = {114:12,115:13,116:14,117:15,118:32,119:33,120:41,121:46};
+  var SURVEY_TYPE_EQUIVALENCES_REVERSE = {12:114,13:115,14:116,15:117,32:118,33:119,41:120,46:121};
+
   var SYSTEM_SURVEY_TYPE_IDS = {
     133: true
   };
@@ -488,8 +496,14 @@
 
       state.surveyTypesInFlow.forEach(function (s) {
         state.surveyTypeSetInFlow[String(s.surveyTypeId)] = true;
+        // Añadir equivalente: si el flujo tiene id sufijado (114), también aceptar el base (12)
+        var equiv = SURVEY_TYPE_EQUIVALENCES[s.surveyTypeId];
+        if (equiv) state.surveyTypeSetInFlow[String(equiv)] = true;
+        var equivRev = SURVEY_TYPE_EQUIVALENCES_REVERSE[s.surveyTypeId];
+        if (equivRev) state.surveyTypeSetInFlow[String(equivRev)] = true;
         if (s.repeatable) {
           state.repeatableSurveyTypeSet[String(s.surveyTypeId)] = true;
+          if (equiv) state.repeatableSurveyTypeSet[String(equiv)] = true;
         }
         if (s.surveyFamilyId && state.familiesInFlow.indexOf(s.surveyFamilyId) < 0) {
           state.familiesInFlow.push(s.surveyFamilyId);
@@ -1335,7 +1349,14 @@
     tempState.surveyTypesInFlow = collectSurveyTypes(sf);
     tempState.surveyTypesInFlow.forEach(function(s) {
       tempState.surveyTypeSetInFlow[String(s.surveyTypeId)] = true;
-      if (s.repeatable) tempState.repeatableSurveyTypeSet[String(s.surveyTypeId)] = true;
+      var equiv = SURVEY_TYPE_EQUIVALENCES[s.surveyTypeId];
+      if (equiv) tempState.surveyTypeSetInFlow[String(equiv)] = true;
+      var equivRev = SURVEY_TYPE_EQUIVALENCES_REVERSE[s.surveyTypeId];
+      if (equivRev) tempState.surveyTypeSetInFlow[String(equivRev)] = true;
+      if (s.repeatable) {
+        tempState.repeatableSurveyTypeSet[String(s.surveyTypeId)] = true;
+        if (equiv) tempState.repeatableSurveyTypeSet[String(equiv)] = true;
+      }
       if (s.surveyFamilyId && tempState.familiesInFlow.indexOf(s.surveyFamilyId) < 0) {
         tempState.familiesInFlow.push(s.surveyFamilyId);
       }
