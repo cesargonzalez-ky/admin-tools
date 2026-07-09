@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-07-09-admin-profile-audit';
+  var VERSION = '2026-07-09-sidebar-admin-profile-audit';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',
@@ -19,16 +19,31 @@
     'kymatio_admin_tools_admin_profile_audit.js'
   ];
 
-  function $(id) {
-    return document.getElementById(id);
-  }
+  var NAV_MAP = {
+    services:                'kym-nav-services',
+    surveyflow:              'kym-nav-surveyflow',
+    languages:               'kym-nav-languages',
+    phish_dom:               'kym-nav-phish-dom',
+    phish_att:               'kym-nav-phish-att',
+    phish_land:              'kym-nav-phish-land',
+    vishing_templates_draft: 'kym-nav-vishing',
+    bulk_loader:             'kym-nav-bulk-loader',
+    bulk_resurrection:       'kym-nav-resurrection',
+    bulk_move_users:         'kym-nav-move',
+    bulk_email_login:        'kym-nav-email',
+    bulk_delete_users:       'kym-nav-delete',
+    bulk_user_dept_report:   'kym-nav-dept-report',
+    admin_profile_audit:     'kym-nav-profile-audit',
+    user_search:             'kym-nav-user-search',
+    tag_manager:             'kym-nav-tag-manager'
+  };
+
+  function $(id) { return document.getElementById(id); }
 
   function escHtml(value) {
     return String(value == null ? '' : value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   function safeJsonClone(obj) {
@@ -37,40 +52,27 @@
 
   function setStatus(el, msg, type) {
     if (!el) return;
-
     var styles = {
-      err: 'background:#fff5f5;border:1px solid #fed7d7;color:#c53030;',
-      ok: 'background:#f0fff4;border:1px solid #9ae6b4;color:#276749;',
+      err:  'background:#fff5f5;border:1px solid #fed7d7;color:#c53030;',
+      ok:   'background:#f0fff4;border:1px solid #9ae6b4;color:#276749;',
       info: 'background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;'
     };
-
-    el.style.cssText =
-      'display:block;margin-top:10px;padding:12px 16px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;' +
-      (styles[type] || styles.info);
-
+    el.style.cssText = 'display:block;margin-top:10px;padding:12px 16px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;' + (styles[type] || styles.info);
     el.innerHTML = msg;
   }
 
   function showToast(message, type) {
     var old = $('kym-adm-toast');
     if (old) old.remove();
-
     var toast = document.createElement('div');
     toast.id = 'kym-adm-toast';
     toast.textContent = message;
-    toast.style.cssText =
-      'position:fixed;bottom:24px;right:24px;z-index:1000002;padding:12px 16px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.18);font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;' +
-      (type === 'err'
-        ? 'background:#fff5f5;border:1px solid #fed7d7;color:#c53030;'
-        : type === 'ok'
-          ? 'background:#f0fff4;border:1px solid #9ae6b4;color:#276749;'
-          : 'background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;');
-
+    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:1000002;padding:12px 16px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.18);font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;' +
+      (type === 'err' ? 'background:#fff5f5;border:1px solid #fed7d7;color:#c53030;' :
+       type === 'ok'  ? 'background:#f0fff4;border:1px solid #9ae6b4;color:#276749;' :
+                        'background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;');
     document.body.appendChild(toast);
-
-    setTimeout(function () {
-      if (toast && toast.parentNode) toast.parentNode.removeChild(toast);
-    }, 3500);
+    setTimeout(function () { if (toast && toast.parentNode) toast.parentNode.removeChild(toast); }, 3500);
   }
 
   function getToken() {
@@ -81,26 +83,16 @@
     try {
       var app = document.querySelector('#app');
       var company = app.__vue_app__.config.globalProperties.$store.state.Admin.companySelected;
-      return {
-        id: String(company.stakeholderId || ''),
-        name: company.name || ''
-      };
+      return { id: String(company.stakeholderId || ''), name: company.name || '' };
     } catch (e) {
-      return {
-        id: '',
-        name: ''
-      };
+      return { id: '', name: '' };
     }
   }
 
   function getBaseUrl() {
     var script = document.currentScript;
     var src = script && script.src ? script.src : '';
-
-    if (!src) {
-      return 'https://cdn.jsdelivr.net/gh/cesargonzalez-ky/admin-tools@main/';
-    }
-
+    if (!src) return 'https://cdn.jsdelivr.net/gh/cesargonzalez-ky/admin-tools@main/';
     var clean = src.split('?')[0].split('#')[0];
     return clean.substring(0, clean.lastIndexOf('/') + 1);
   }
@@ -109,9 +101,7 @@
     return new Promise(function (resolve) {
       var s = document.createElement('script');
       s.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
-      s.onload = function () {
-        resolve({ ok: true, url: url });
-      };
+      s.onload = function () { resolve({ ok: true, url: url }); };
       s.onerror = function () {
         console.error('Kymatio Admin Tools: no se pudo cargar modulo', url);
         resolve({ ok: false, url: url });
@@ -137,7 +127,8 @@
     panel: null,
     modules: [],
     modulesMap: {},
-    activeGroup: 'config'
+    activeGroup: 'config',
+    collapsed: localStorage.getItem('kym-panel-collapsed') === '1'
   };
 
   var KAT = {
@@ -161,25 +152,17 @@
   function registerModule(mod) {
     if (!mod || !mod.key) return;
     if (!mod.group) mod.group = 'config';
-
     state.modulesMap[mod.key] = mod;
-
     var replaced = false;
     state.modules = state.modules.map(function (m) {
-      if (m.key === mod.key) {
-        replaced = true;
-        return mod;
-      }
+      if (m.key === mod.key) { replaced = true; return mod; }
       return m;
     });
-
     if (!replaced) state.modules.push(mod);
-
-    // If modules are registered after the panel is already visible, repaint the section buttons.
     try {
-      if (state.panel && document.getElementById('kym-adm-sections')) renderSectionButtons();
+      if (state.panel && document.getElementById('kym-adm-sidebar')) renderSidebarButtons();
     } catch (e) {
-      console.warn('Kymatio Admin Tools: could not repaint section buttons', e);
+      console.warn('Kymatio Admin Tools: could not repaint sidebar', e);
     }
   }
 
@@ -190,16 +173,9 @@
       group: 'config',
       icon: '&#128200;',
       order: 20,
-      getJson: function (d) {
-        return {
-          journey: {
-            surveyflow: d.journey && d.journey.surveyflow
-          }
-        };
-      },
+      getJson: function (d) { return { journey: { surveyflow: d.journey && d.journey.surveyflow } }; },
       chatgptUrl: 'https://chatgpt.com/g/g-p-69b2862052e081918097b93ab359f603/c/6a3259aa-3cb8-832d-92e0-6cdc22a46eee'
     });
-
     registerModule({
       key: 'phish_land',
       label: 'Phishing: Post-landings',
@@ -207,260 +183,79 @@
       icon: '&#128279;',
       order: 60,
       getJson: function (d) {
-        return {
-          servicesConfiguration: {
-            phishing: {
-              landingRedirect:
-                d.servicesConfiguration &&
-                d.servicesConfiguration.phishing &&
-                d.servicesConfiguration.phishing.landingRedirect
-            }
-          }
-        };
+        return { servicesConfiguration: { phishing: { landingRedirect: d.servicesConfiguration && d.servicesConfiguration.phishing && d.servicesConfiguration.phishing.landingRedirect } } };
       }
     });
   }
 
   function apiHeaders() {
-    return {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + state.token
-    };
+    return { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.token };
   }
 
   async function loadCompanyData(force) {
     if (state.companyData && !force) return state.companyData;
-
-    if (!state.companyId) {
-      throw new Error('No se ha podido detectar la empresa activa. Selecciona una empresa y pulsa “Actualizar empresa y datos”.');
-    }
-
-    if (!state.token) {
-      throw new Error('No se ha encontrado token en localStorage. Asegúrate de estar logado en Kymatio.');
-    }
-
-    var url =
-      'https://api.kymatio.com/v2/admin/stakeholders/companies/' +
-      encodeURIComponent(state.companyId) +
-      '?environment=true&journey=true&services=true';
-
-    var res = await fetch(url, {
-      headers: apiHeaders()
-    });
-
+    if (!state.companyId) throw new Error('No se ha podido detectar la empresa activa. Selecciona una empresa y pulsa "Actualizar empresa y datos".');
+    if (!state.token) throw new Error('No se ha encontrado token en localStorage. Aseg\u00farate de estar logado en Kymatio.');
+    var url = 'https://api.kymatio.com/v2/admin/stakeholders/companies/' + encodeURIComponent(state.companyId) + '?environment=true&journey=true&services=true';
+    var res = await fetch(url, { headers: apiHeaders() });
     var d = await res.json();
-
-    if (!res.ok) {
-      throw new Error((d && (d.message || (d.records && d.records.devMessage))) || 'Error HTTP ' + res.status);
-    }
-
+    if (!res.ok) throw new Error((d && (d.message || (d.records && d.records.devMessage))) || 'Error HTTP ' + res.status);
     state.companyData = d.records || d;
     return state.companyData;
   }
 
   async function putCompanyPayload(payload) {
-    if (!state.companyId) throw new Error('No hay empresa activa.');
-    if (!state.token) throw new Error('No hay token.');
-
-    var res = await fetch('https://api.kymatio.com/v2/admin/stakeholders/companies/' + encodeURIComponent(state.companyId), {
-      method: 'PUT',
-      headers: apiHeaders(),
-      body: JSON.stringify(payload)
-    });
-
-    var rdata = null;
-    try {
-      rdata = await res.json();
-    } catch (e) {}
-
-    if (!res.ok) {
-      throw new Error(
-        (rdata && rdata.records && rdata.records.devMessage) ||
-          (rdata && rdata.message) ||
-          'Error HTTP ' + res.status
-      );
-    }
-
+    if (!state.companyId) throw new Error('No hay empresa seleccionada.');
+    var url = 'https://api.kymatio.com/v2/admin/stakeholders/companies/' + encodeURIComponent(state.companyId);
+    var res = await fetch(url, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(payload) });
+    var d = await res.json();
+    if (!res.ok) throw new Error((d && (d.message || (d.records && d.records.devMessage))) || 'Error HTTP ' + res.status);
     state.companyData = null;
-    return rdata;
+    return d.records || d;
   }
 
-  function createPanel() {
-    var div = document.createElement('div');
-    div.id = 'kym-admin-panel';
-    div.style.cssText =
-      'position:fixed;top:0;right:0;width:560px;height:100vh;background:#fff;box-shadow:-4px 0 24px rgba(0,0,0,.18);z-index:2147483647;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;font-size:13px;color:#1a202c;';
+  // ── Sidebar ──────────────────────────────────────────────────────────────────
+
+  function sidebarSection(label) {
+    return '<div style="padding:6px 10px 2px;font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.8px">' + label + '</div>';
+  }
+
+  function renderSidebarButtons() {
+    var sidebar = $('kym-adm-sidebar');
+    if (!sidebar) return;
+
+    var configMods = state.modules.filter(function (m) { return m.group === 'config'; }).sort(function (a, b) { return (a.order || 999) - (b.order || 999); });
+    var bulkMods   = state.modules.filter(function (m) { return m.group === 'bulk'; }).sort(function (a, b) { return (a.order || 999) - (b.order || 999); });
 
     var html = '';
-
-    html += '<div style="background:#1e293b;color:white;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">';
-    html += '<div>';
-    html += '<div style="font-weight:700;font-size:15px">&#9881; Kymatio Admin Tools</div>';
-    html += '<div style="font-size:10px;color:#cbd5e1;margin-top:2px">v. ' + escHtml(VERSION) + '</div>';
-    html += '</div>';
-    html += '<button id="kym-adm-close" style="background:none;border:none;color:white;font-size:22px;cursor:pointer;line-height:1">&#215;</button>';
-    html += '</div>';
-
-    html += '<div style="overflow-y:auto;flex:1;padding:18px">';
-
-    html += '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 16px;margin-bottom:16px">';
-    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">';
-    html += '<div style="font-size:22px">&#127970;</div>';
-    html += '<div style="flex:1">';
-    html += '<div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Empresa activa</div>';
-    html += '<div class="kym-company-name" style="font-size:18px;font-weight:700;color:#166534">' + escHtml(state.companyName || '— Sin empresa seleccionada') + '</div>';
-    html += '<div style="font-size:11px;color:#64748b">ID: <span class="kym-company-id">' + escHtml(state.companyId || '?') + '</span></div>';
-    html += '</div>';
-    html += '</div>';
-    html += '<button id="kym-adm-refresh-company" style="width:100%;background:#166534;color:white;border:none;padding:8px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">&#8635; Actualizar empresa y datos</button>';
-    html += '</div>';
-
-    html += '<div id="kym-adm-tabs" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
-    html += '<button id="kym-adm-tab-config" data-kym-group="config" style="border:1px solid #1e293b;background:#1e293b;color:white;border-radius:8px;padding:9px 10px;font-size:13px;font-weight:700;cursor:pointer">Configuración</button>';
-    html += '<button id="kym-adm-tab-bulk" data-kym-group="bulk" style="border:1px solid #e2e8f0;background:#f8fafc;color:#475569;border-radius:8px;padding:9px 10px;font-size:13px;font-weight:700;cursor:pointer">Acciones masivas</button>';
-    html += '</div>';
-    html += '<div id="kym-adm-sections" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px"></div>';
-
-    html += '<div id="kym-adm-action" style="display:none">';
-    html += '<hr style="border:none;border-top:1px solid #e2e8f0;margin-bottom:16px">';
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
-    html += '<div id="kym-adm-section-title" style="font-size:14px;font-weight:700;color:#1a202c"></div>';
-    html += '<button id="kym-adm-back" style="background:none;border:none;color:#64748b;font-size:12px;cursor:pointer;text-decoration:underline">&#8592; Volver</button>';
-    html += '</div>';
-
-    html += '<a id="kym-adm-btn-chatgpt" href="#" target="_blank" style="display:none;width:100%;box-sizing:border-box;margin-bottom:10px;background:#10a37f;color:white;text-decoration:none;padding:8px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;text-align:center">&#129302; Abrir ChatGPT</a>';
-
-    html += '<div id="kym-adm-mode-switch" style="display:none;margin-bottom:8px">';
-    html += '<button id="kym-adm-mode-toggle" style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;color:#475569">{ } Modo JSON</button>';
-    html += '</div>';
-
-    html += '<div id="kym-adm-btns-row" style="display:flex;gap:8px;margin-bottom:14px">';
-    html += '<button id="kym-adm-btn-view" style="flex:1;background:#00b89c;color:white;border:none;padding:9px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13px">&#128065; Ver actual</button>';
-    html += '<button id="kym-adm-btn-edit" style="flex:1;background:#3b82f6;color:white;border:none;padding:9px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13px">&#9998; Modificar</button>';
-    html += '</div>';
-
-    html += '<div id="kym-adm-view-panel" style="display:none">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
-    html += '<span style="font-size:11px;font-weight:600;color:#64748b">JSON ACTUAL</span>';
-    html += '<button id="kym-adm-copy" style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;color:#475569">&#128203; Copiar</button>';
-    html += '</div>';
-    html += '<pre id="kym-adm-json-view" style="background:#0f172a;color:#34d399;border-radius:8px;padding:14px;font-size:11px;font-family:Menlo,Consolas,monospace;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;margin:0"></pre>';
-    html += '</div>';
-
-    html += '<div id="kym-adm-edit-panel" style="display:none">';
-    html += '<div style="font-size:11px;font-weight:600;color:#64748b;margin-bottom:6px">EDITAR JSON</div>';
-    html += '<textarea id="kym-adm-json-edit" style="width:100%;height:300px;background:#0f172a;color:#fbbf24;border:1px solid #334155;border-radius:8px;padding:14px;font-size:11px;font-family:Menlo,Consolas,monospace;resize:vertical;outline:none;box-sizing:border-box"></textarea>';
-    html += '<div style="display:flex;gap:8px;margin-top:10px">';
-    html += '<button id="kym-adm-btn-load" style="background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;padding:8px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">&#8635; Cargar actual</button>';
-    html += '<button id="kym-adm-btn-save" style="flex:1;background:#3b82f6;color:white;border:none;padding:9px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13px">&#10003; Actualizar</button>';
-    html += '</div>';
-    html += '<div id="kym-adm-save-status" style="display:none"></div>';
-    html += '</div>';
-
-    html += '<div id="kym-adm-gui-container" style="display:none"></div>';
-
-    html += '</div>';
-    html += '</div>';
-
-    div.innerHTML = html;
-    document.body.appendChild(div);
-    state.panel = div;
-
-    renderSectionButtons();
-    bindCoreEvents();
-  }
-
-  function renderSectionButtons() {
-    var container = $('kym-adm-sections');
-    if (!container) return;
-    container.innerHTML = '';
-
-    // Safety net: the built-in modules must always exist, even if an external module fails.
-    if (!state.modules.length) {
-      registerBuiltinModules();
-    }
-
-    updateTabs();
-
-    if (!state.modules.length) {
-      container.innerHTML = '<div style="grid-column:1/-1;padding:12px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030;font-size:12px">No se ha registrado ningún módulo. Revisa la consola del navegador.</div>';
-      return;
-    }
-
-    var groupKey = state.activeGroup || 'config';
-    var mods = state.modules
-      .filter(function (m) {
-        var g = m.group || 'config';
-        return groupKey === 'config' ? g !== 'bulk' : g === groupKey;
-      })
-      .slice()
-      .sort(function (a, b) {
-        return (a.order || 999) - (b.order || 999);
+    if (configMods.length) {
+      html += sidebarSection('Configuraci\u00f3n');
+      configMods.forEach(function (mod) {
+        var navId = NAV_MAP[mod.key] || ('kym-nav-' + mod.key);
+        var active = state.currentSection === mod.key;
+        html += '<button id="' + navId + '" data-section="' + mod.key + '" style="' +
+          'display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;text-align:left;transition:background .15s;' +
+          (active ? 'background:#1e293b;color:white;' : 'background:transparent;color:#1a202c;') +
+          '">' + (mod.icon || '&#8226;') + '<span>' + escHtml(mod.label) + '</span></button>';
       });
-
-    if (!mods.length) {
-      container.innerHTML = '<div style="grid-column:1/-1;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#64748b;font-size:12px">No hay módulos disponibles en esta pestaña.</div>';
-      return;
+    }
+    if (bulkMods.length) {
+      html += sidebarSection('Masivo');
+      bulkMods.forEach(function (mod) {
+        var navId = NAV_MAP[mod.key] || ('kym-nav-' + mod.key);
+        var active = state.currentSection === mod.key;
+        html += '<button id="' + navId + '" data-section="' + mod.key + '" style="' +
+          'display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;text-align:left;transition:background .15s;' +
+          (active ? 'background:#1e293b;color:white;' : 'background:transparent;color:#1a202c;') +
+          '">' + (mod.icon || '&#8226;') + '<span>' + escHtml(mod.label) + '</span></button>';
+      });
     }
 
-    mods.forEach(function (mod) {
-      var btn = document.createElement('button');
-      btn.dataset.section = mod.key;
-      btn.className = 'kym-sec-btn';
-      btn.style.cssText = 'background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;text-align:left;cursor:pointer;font-size:13px;font-weight:600;color:#1a202c;display:flex;align-items:center;gap:8px';
-      btn.innerHTML = '<span>' + (mod.icon || '&#8226;') + '</span><span>' + escHtml(mod.label) + '</span>';
-      btn.onclick = function () {
-        selectSection(mod.key);
-      };
-      container.appendChild(btn);
+    sidebar.innerHTML = html;
+
+    sidebar.querySelectorAll('button[data-section]').forEach(function (btn) {
+      btn.onclick = function () { selectSection(btn.dataset.section); };
     });
-  }
-
-  function updateTabs() {
-    var configTab = $('kym-adm-tab-config');
-    var bulkTab = $('kym-adm-tab-bulk');
-    if (!configTab || !bulkTab) return;
-
-    function paint(btn, active) {
-      btn.style.background = active ? '#1e293b' : '#f8fafc';
-      btn.style.borderColor = active ? '#1e293b' : '#e2e8f0';
-      btn.style.color = active ? 'white' : '#475569';
-    }
-
-    paint(configTab, (state.activeGroup || 'config') === 'config');
-    paint(bulkTab, state.activeGroup === 'bulk');
-  }
-
-  function moduleAllowsJsonToggle(mod) {
-    if (!mod) return false;
-    if (mod.group === 'bulk') return false;
-    if (mod.forceGuiOnly || mod.hideModeSwitch) return false;
-    return typeof mod.renderGui === 'function' && typeof mod.getJson === 'function';
-  }
-
-  function updateCompanyBanner() {
-    var nameEl = state.panel && state.panel.querySelector('.kym-company-name');
-    var idEl = state.panel && state.panel.querySelector('.kym-company-id');
-    if (nameEl) nameEl.textContent = state.companyName || '— Sin empresa seleccionada';
-    if (idEl) idEl.textContent = state.companyId || '?';
-  }
-
-  function resetActionPanels() {
-    $('kym-adm-view-panel').style.display = 'none';
-    $('kym-adm-edit-panel').style.display = 'none';
-    $('kym-adm-gui-container').style.display = 'none';
-    $('kym-adm-save-status').style.display = 'none';
-    $('kym-adm-gui-container').innerHTML = '';
-  }
-
-  function getCurrentModule() {
-    return state.modulesMap[state.currentSection];
-  }
-
-  function getCurrentSectionData() {
-    var mod = getCurrentModule();
-    if (!state.companyData || !mod || !mod.getJson) return null;
-    return mod.getJson(state.companyData);
   }
 
   function selectSection(key) {
@@ -468,7 +263,21 @@
     state.companyData = null;
     state.guiMode = true;
 
-    var mod = getCurrentModule();
+    // Auto-expandir si está contraído
+    if (state.collapsed) {
+      state.collapsed = false;
+      var panel = document.getElementById('kym-admin-panel');
+      var content = $('kym-adm-content');
+      var colBtn = $('kym-adm-collapse');
+      if (content) content.style.display = 'flex';
+      if (panel) panel.style.width = 'calc(96px + 50vw)';
+      if (colBtn) colBtn.textContent = '\u25c4';
+      localStorage.setItem('kym-panel-collapsed', '0');
+    }
+
+    renderSidebarButtons();
+
+    var mod = state.modulesMap[key];
     if (!mod) return;
 
     $('kym-adm-section-title').innerHTML = (mod.icon || '&#8226;') + ' ' + escHtml(mod.label);
@@ -492,10 +301,39 @@
     if (hasGui) renderCurrentGui();
   }
 
+  function moduleAllowsJsonToggle(mod) {
+    if (!mod) return false;
+    if (mod.group === 'bulk') return false;
+    if (mod.forceGuiOnly || mod.hideModeSwitch) return false;
+    return typeof mod.renderGui === 'function' && typeof mod.getJson === 'function';
+  }
+
+  function updateCompanyBanner() {
+    var nameEl = state.panel && state.panel.querySelector('.kym-company-name');
+    var idEl   = state.panel && state.panel.querySelector('.kym-company-id');
+    if (nameEl) nameEl.textContent = state.companyName || '\u2014 Sin empresa seleccionada';
+    if (idEl)   idEl.textContent   = state.companyId   || '?';
+  }
+
+  function resetActionPanels() {
+    $('kym-adm-view-panel').style.display = 'none';
+    $('kym-adm-edit-panel').style.display = 'none';
+    $('kym-adm-gui-container').style.display = 'none';
+    $('kym-adm-save-status').style.display = 'none';
+    $('kym-adm-gui-container').innerHTML = '';
+  }
+
+  function getCurrentModule() { return state.modulesMap[state.currentSection]; }
+
+  function getCurrentSectionData() {
+    var mod = getCurrentModule();
+    if (!state.companyData || !mod || !mod.getJson) return null;
+    return mod.getJson(state.companyData);
+  }
+
   function renderCurrentGui() {
     var mod = getCurrentModule();
     if (!mod || typeof mod.renderGui !== 'function') return;
-
     resetActionPanels();
     var container = $('kym-adm-gui-container');
     container.style.display = 'block';
@@ -503,10 +341,126 @@
     mod.renderGui(container, KAT);
   }
 
+  // ── Panel HTML ───────────────────────────────────────────────────────────────
+
+  function createPanel() {
+    var panel = document.createElement('div');
+    panel.id = 'kym-admin-panel';
+    panel.style.cssText = 'position:fixed;top:0;right:0;height:100vh;z-index:1000001;display:flex;flex-direction:row;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;box-shadow:-4px 0 32px rgba(0,0,0,.18);transition:width .2s;width:' + (state.collapsed ? '48px' : 'calc(96px + 50vw)') + ';';
+
+    // ── Sidebar izquierda ────────────────────────────────────────────────────
+    var sidebarEl = document.createElement('div');
+    sidebarEl.style.cssText = 'width:180px;min-width:180px;background:#f8fafc;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;overflow:hidden;';
+
+    // Cabecera del sidebar: botones contraer y cerrar (pequeños, arriba)
+    var sidebarHeader = document.createElement('div');
+    sidebarHeader.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:4px;padding:6px 8px;border-bottom:1px solid #e2e8f0;';
+
+    var colBtn = document.createElement('button');
+    colBtn.id = 'kym-adm-collapse';
+    colBtn.title = state.collapsed ? 'Expandir' : 'Contraer';
+    colBtn.textContent = state.collapsed ? '\u25ba' : '\u25c4';
+    colBtn.style.cssText = 'background:none;border:1px solid #e2e8f0;border-radius:5px;cursor:pointer;font-size:10px;color:#64748b;padding:3px 7px;line-height:1;';
+
+    var closeBtn = document.createElement('button');
+    closeBtn.id = 'kym-adm-close';
+    closeBtn.title = 'Cerrar';
+    closeBtn.textContent = '\u00d7';
+    closeBtn.style.cssText = 'background:none;border:1px solid #e2e8f0;border-radius:5px;cursor:pointer;font-size:13px;color:#64748b;padding:1px 6px;line-height:1;';
+
+    sidebarHeader.appendChild(colBtn);
+    sidebarHeader.appendChild(closeBtn);
+
+    // Empresa activa en sidebar
+    var companyBadge = document.createElement('div');
+    companyBadge.style.cssText = 'padding:8px 10px;border-bottom:1px solid #e2e8f0;';
+    companyBadge.innerHTML =
+      '<div style="font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Empresa activa</div>' +
+      '<div class="kym-company-name" style="font-size:11px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(state.companyName || '\u2014') + '</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">' +
+        '<span class="kym-company-id" style="font-size:10px;color:#64748b;">ID: ' + escHtml(state.companyId || '?') + '</span>' +
+        '<button id="kym-adm-refresh-company" style="font-size:9px;background:#1e293b;color:white;border:none;border-radius:4px;padding:2px 6px;cursor:pointer;">\u21bb</button>' +
+      '</div>';
+
+    // Lista de módulos en el sidebar
+    var sidebarList = document.createElement('div');
+    sidebarList.id = 'kym-adm-sidebar';
+    sidebarList.style.cssText = 'flex:1;overflow-y:auto;padding:6px 6px;';
+
+    sidebarEl.appendChild(sidebarHeader);
+    sidebarEl.appendChild(companyBadge);
+    sidebarEl.appendChild(sidebarList);
+
+    // ── Contenido derecha ────────────────────────────────────────────────────
+    var contentEl = document.createElement('div');
+    contentEl.id = 'kym-adm-content';
+    contentEl.style.cssText = 'flex:1;min-width:0;background:white;display:' + (state.collapsed ? 'none' : 'flex') + ';flex-direction:column;overflow:hidden;';
+
+    // Header del contenido
+    var contentHeader = document.createElement('div');
+    contentHeader.style.cssText = 'background:#1e293b;color:white;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;';
+    contentHeader.innerHTML =
+      '<div>' +
+        '<div style="font-size:11px;font-weight:700;letter-spacing:.5px;opacity:.7">KYMATIO ADMIN TOOLS</div>' +
+        '<div style="font-size:10px;opacity:.5">' + escHtml(VERSION) + '</div>' +
+      '</div>';
+
+    // Área de acción (título + botones)
+    var actionEl = document.createElement('div');
+    actionEl.id = 'kym-adm-action';
+    actionEl.style.cssText = 'display:none;flex:1;flex-direction:column;overflow:hidden;';
+
+    actionEl.innerHTML =
+      '<div style="padding:12px 18px 0;border-bottom:1px solid #e2e8f0;flex-shrink:0;">' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
+          '<button id="kym-adm-back" style="background:none;border:1px solid #e2e8f0;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;color:#64748b;">\u2190 Volver</button>' +
+          '<div id="kym-adm-section-title" style="font-size:14px;font-weight:700;color:#1e293b;flex:1;"></div>' +
+          '<a id="kym-adm-btn-chatgpt" href="#" target="_blank" style="display:none;font-size:11px;background:#10a37f;color:white;border-radius:6px;padding:5px 10px;text-decoration:none;font-weight:600;">ChatGPT</a>' +
+        '</div>' +
+        '<div id="kym-adm-mode-switch" style="display:none;margin-bottom:10px;">' +
+          '<button id="kym-adm-mode-toggle" style="font-size:11px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:5px 12px;cursor:pointer;color:#475569;font-weight:600;">{ } Modo JSON</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="kym-adm-btns-row" style="display:none;gap:8px;padding:12px 18px;flex-shrink:0;">' +
+        '<button id="kym-adm-btn-view" style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;color:#1a202c;">&#128065; Ver JSON</button>' +
+        '<button id="kym-adm-btn-edit" style="flex:1;background:#1e293b;color:white;border:none;border-radius:8px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;">&#9998; Editar JSON</button>' +
+      '</div>' +
+      '<div id="kym-adm-view-panel" style="display:none;flex:1;flex-direction:column;overflow:hidden;padding:12px 18px;">' +
+        '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">' +
+          '<button id="kym-adm-copy" style="font-size:11px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:5px 12px;cursor:pointer;font-weight:600;">&#128203; Copiar</button>' +
+        '</div>' +
+        '<pre id="kym-adm-json-view" style="flex:1;overflow:auto;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:14px;font-size:12px;font-family:Menlo,Consolas,monospace;margin:0;white-space:pre-wrap;word-break:break-all;"></pre>' +
+      '</div>' +
+      '<div id="kym-adm-edit-panel" style="display:none;flex:1;flex-direction:column;overflow:hidden;padding:12px 18px;">' +
+        '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
+          '<button id="kym-adm-btn-load" style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:12px;font-weight:600;cursor:pointer;color:#1a202c;">&#8635; Cargar actual</button>' +
+          '<button id="kym-adm-btn-save" style="flex:1;background:#0f766e;color:white;border:none;border-radius:6px;padding:6px;font-size:12px;font-weight:600;cursor:pointer;">&#128190; Guardar</button>' +
+        '</div>' +
+        '<textarea id="kym-adm-json-edit" spellcheck="false" style="flex:1;background:#0f172a;color:#e2e8f0;border:none;border-radius:8px;padding:14px;font-size:12px;font-family:Menlo,Consolas,monospace;resize:none;outline:none;"></textarea>' +
+        '<div id="kym-adm-save-status" style="display:none;margin-top:8px;"></div>' +
+      '</div>' +
+      '<div id="kym-adm-gui-container" style="display:none;flex:1;overflow-y:auto;padding:14px 18px;"></div>';
+
+    contentEl.appendChild(contentHeader);
+    contentEl.appendChild(actionEl);
+
+    // Placeholder cuando no hay sección seleccionada
+    var placeholder = document.createElement('div');
+    placeholder.id = 'kym-adm-placeholder';
+    placeholder.style.cssText = 'flex:1;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;';
+    placeholder.textContent = '\u2190 Selecciona un m\u00f3dulo';
+    contentEl.appendChild(placeholder);
+
+    panel.appendChild(sidebarEl);
+    panel.appendChild(contentEl);
+    document.body.appendChild(panel);
+    state.panel = panel;
+
+    return panel;
+  }
+
   function bindCoreEvents() {
-    $('kym-adm-close').onclick = function () {
-      state.panel.remove();
-    };
+    $('kym-adm-close').onclick = function () { state.panel.remove(); };
 
     $('kym-adm-refresh-company').onclick = function () {
       var c = getCurrentCompanyFromVue();
@@ -518,36 +472,38 @@
       updateCompanyBanner();
       $('kym-adm-action').style.display = 'none';
       resetActionPanels();
+      renderSidebarButtons();
       showToast('Empresa actualizada', 'ok');
     };
 
-    function switchGroup(group) {
-      state.activeGroup = group;
-      state.currentSection = null;
-      $('kym-adm-action').style.display = 'none';
-      resetActionPanels();
-      renderSectionButtons();
-    }
-
-    $('kym-adm-tab-config').onclick = function () {
-      switchGroup('config');
-    };
-
-    $('kym-adm-tab-bulk').onclick = function () {
-      switchGroup('bulk');
+    $('kym-adm-collapse').onclick = function () {
+      state.collapsed = !state.collapsed;
+      var panel = document.getElementById('kym-admin-panel');
+      var content = $('kym-adm-content');
+      var colBtn = $('kym-adm-collapse');
+      if (state.collapsed) {
+        if (content) content.style.display = 'none';
+        if (panel) panel.style.width = '48px';
+        if (colBtn) { colBtn.textContent = '\u25ba'; colBtn.title = 'Expandir'; }
+      } else {
+        if (content) content.style.display = 'flex';
+        if (panel) panel.style.width = 'calc(96px + 50vw)';
+        if (colBtn) { colBtn.textContent = '\u25c4'; colBtn.title = 'Contraer'; }
+      }
+      localStorage.setItem('kym-panel-collapsed', state.collapsed ? '1' : '0');
     };
 
     $('kym-adm-back').onclick = function () {
       $('kym-adm-action').style.display = 'none';
       resetActionPanels();
       state.currentSection = null;
+      renderSidebarButtons();
     };
 
     $('kym-adm-btn-view').onclick = async function () {
       resetActionPanels();
-      $('kym-adm-view-panel').style.display = 'block';
+      $('kym-adm-view-panel').style.display = 'flex';
       $('kym-adm-json-view').textContent = 'Cargando...';
-
       try {
         await loadCompanyData();
         $('kym-adm-json-view').textContent = JSON.stringify(getCurrentSectionData(), null, 2);
@@ -557,25 +513,20 @@
     };
 
     $('kym-adm-copy').onclick = function () {
-      var text = $('kym-adm-json-view').textContent;
-
-      navigator.clipboard.writeText(text).then(function () {
+      navigator.clipboard.writeText($('kym-adm-json-view').textContent).then(function () {
         $('kym-adm-copy').innerHTML = '&#10003; Copiado';
-        setTimeout(function () {
-          if ($('kym-adm-copy')) $('kym-adm-copy').innerHTML = '&#128203; Copiar';
-        }, 1500);
+        setTimeout(function () { if ($('kym-adm-copy')) $('kym-adm-copy').innerHTML = '&#128203; Copiar'; }, 1500);
       });
     };
 
     $('kym-adm-btn-edit').onclick = function () {
       resetActionPanels();
-      $('kym-adm-edit-panel').style.display = 'block';
+      $('kym-adm-edit-panel').style.display = 'flex';
       $('kym-adm-save-status').textContent = '';
     };
 
     $('kym-adm-btn-load').onclick = async function () {
       $('kym-adm-json-edit').value = 'Cargando...';
-
       try {
         await loadCompanyData();
         $('kym-adm-json-edit').value = JSON.stringify(getCurrentSectionData(), null, 2);
@@ -588,24 +539,19 @@
       var status = $('kym-adm-save-status');
       var raw = $('kym-adm-json-edit').value.trim();
       var parsed;
-
       try {
         parsed = JSON.parse(raw);
       } catch (e) {
-        setStatus(status, '&#10007; JSON no valido: ' + escHtml(e.message), 'err');
+        setStatus(status, '&#10007; JSON no v\u00e1lido: ' + escHtml(e.message), 'err');
         return;
       }
-
       var mod = getCurrentModule();
       var sectionLabel = mod ? mod.label : state.currentSection;
-
-      if (!confirm('Se va a proceder a la modificacion de ' + sectionLabel + ' de la empresa ' + state.companyName + '.\n\n¿Quieres continuar?')) {
+      if (!confirm('Se va a proceder a la modificaci\u00f3n de ' + sectionLabel + ' de la empresa ' + state.companyName + '.\n\n\u00bfQuieres continuar?')) {
         status.style.display = 'none';
         return;
       }
-
       setStatus(status, '&#8987; Guardando...', 'info');
-
       try {
         await putCompanyPayload(parsed);
         setStatus(status, '&#10003; Cambios realizados correctamente en ' + escHtml(sectionLabel), 'ok');
@@ -617,9 +563,7 @@
     $('kym-adm-mode-toggle').onclick = function () {
       var mod = getCurrentModule();
       if (!moduleAllowsJsonToggle(mod)) return;
-
       state.guiMode = !state.guiMode;
-
       if (state.guiMode) {
         $('kym-adm-btns-row').style.display = 'none';
         $('kym-adm-mode-toggle').innerHTML = '{ } Modo JSON';
@@ -633,19 +577,16 @@
   }
 
   async function start() {
-    // Create the panel first with built-in modules, then load the optional GUI modules.
-    // This avoids showing an empty section list if one external module fails or is cached/blocked.
     registerBuiltinModules();
     createPanel();
-    renderSectionButtons();
+    bindCoreEvents();
+    renderSidebarButtons();
 
     var base = state.baseUrl;
     for (var i = 0; i < MODULE_FILES.length; i++) {
       var result = await loadScript(base + MODULE_FILES[i]);
-      if (!result.ok) {
-        showToast('No se pudo cargar: ' + MODULE_FILES[i], 'err');
-      }
-      renderSectionButtons();
+      if (!result.ok) showToast('No se pudo cargar: ' + MODULE_FILES[i], 'err');
+      renderSidebarButtons();
     }
 
     console.log('Kymatio Admin Tools loaded:', VERSION, state.modules.map(function (m) { return m.key; }));
