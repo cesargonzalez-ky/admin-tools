@@ -270,7 +270,7 @@
       var content = $('kym-adm-content');
       var colBtn = $('kym-adm-collapse');
       if (content) content.style.display = 'flex';
-      if (panel) panel.style.width = 'calc(96px + 50vw)';
+      if (panel) panel.style.width = 'calc(180px + 50vw)';
       if (colBtn) colBtn.textContent = '\u25c4';
       localStorage.setItem('kym-panel-collapsed', '0');
     }
@@ -346,7 +346,7 @@
   function createPanel() {
     var panel = document.createElement('div');
     panel.id = 'kym-admin-panel';
-    panel.style.cssText = 'position:fixed;top:0;right:0;height:100vh;z-index:1000001;display:flex;flex-direction:row;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;box-shadow:-4px 0 32px rgba(0,0,0,.18);transition:width .2s;width:' + (state.collapsed ? '48px' : 'calc(96px + 50vw)') + ';';
+    panel.style.cssText = 'position:fixed;top:0;right:0;height:100vh;z-index:1000001;display:flex;flex-direction:row;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;box-shadow:-4px 0 32px rgba(0,0,0,.18);transition:width .2s;width:' + (state.collapsed ? '180px' : 'calc(180px + 50vw)') + ';overflow:hidden;';
 
     // ── Sidebar izquierda ────────────────────────────────────────────────────
     var sidebarEl = document.createElement('div');
@@ -394,7 +394,7 @@
     // ── Contenido derecha ────────────────────────────────────────────────────
     var contentEl = document.createElement('div');
     contentEl.id = 'kym-adm-content';
-    contentEl.style.cssText = 'flex:1;min-width:0;background:white;display:' + (state.collapsed ? 'none' : 'flex') + ';flex-direction:column;overflow:hidden;';
+    contentEl.style.cssText = 'flex:1;min-width:0;background:white;display:' + (state.collapsed ? 'none' : 'flex') + ';flex-direction:column;overflow:hidden;min-height:0;';
 
     // Header del contenido
     var contentHeader = document.createElement('div');
@@ -408,7 +408,7 @@
     // Área de acción (título + botones)
     var actionEl = document.createElement('div');
     actionEl.id = 'kym-adm-action';
-    actionEl.style.cssText = 'display:none;flex:1;flex-direction:column;overflow:hidden;';
+    actionEl.style.cssText = 'display:none;flex:1;flex-direction:column;overflow:hidden;min-height:0;';
 
     actionEl.innerHTML =
       '<div style="padding:12px 18px 0;border-bottom:1px solid #e2e8f0;flex-shrink:0;">' +
@@ -483,11 +483,11 @@
       var colBtn = $('kym-adm-collapse');
       if (state.collapsed) {
         if (content) content.style.display = 'none';
-        if (panel) panel.style.width = '48px';
+        if (panel) panel.style.width = '180px'; // solo sidebar visible
         if (colBtn) { colBtn.textContent = '\u25ba'; colBtn.title = 'Expandir'; }
       } else {
         if (content) content.style.display = 'flex';
-        if (panel) panel.style.width = 'calc(96px + 50vw)';
+        if (panel) panel.style.width = 'calc(180px + 50vw)';
         if (colBtn) { colBtn.textContent = '\u25c4'; colBtn.title = 'Contraer'; }
       }
       localStorage.setItem('kym-panel-collapsed', state.collapsed ? '1' : '0');
