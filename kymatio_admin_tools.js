@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-07-09-sidebar-admin-profile-audit';
+  var VERSION = '2026-07-09-sidebar-admin-profile-audit_v3';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',
