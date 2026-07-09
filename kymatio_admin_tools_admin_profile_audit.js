@@ -4,7 +4,7 @@
   var KAT = window.KymatioAdminTools;
   if (!KAT) return;
 
-  var VERSION = 'admin-profile-audit-01-all-companies';
+  var VERSION = 'admin-profile-audit-02-entity-type';
   var ROOT_COMPANY_ID = 1;
   var COMPANY_CONCURRENCY = 5;
   var USERS_QUERY = 'login=true&environment=true&email=true';
@@ -298,9 +298,30 @@
       return getRecords(json);
     }
 
+    async function loadCompanyTags(companyId) {
+      try {
+        var json = await apiGet('/admin/stakeholders/companies/' + encodeURIComponent(companyId) + '?tags=true');
+        var rec = json && json.records ? json.records : json;
+        return (rec && rec.tags) ? rec.tags : {};
+      } catch (e) {
+        return {};
+      }
+    }
+
     async function processCompany(company, counters) {
       try {
-        var users = await loadUsersForCompany(company);
+        // Cargar usuarios y tags en paralelo (una sola llamada de tags por empresa)
+        var results = await Promise.all([
+          loadUsersForCompany(company),
+          loadCompanyTags(company.id)
+        ]);
+        var users = results[0];
+        var companyTags = results[1];
+
+        // Extraer tipo de entidad del tag 10
+        var tag10 = companyTags && companyTags['10'];
+        var tipoEntidad = Array.isArray(tag10) ? tag10.join(', ') : String(tag10 || '');
+
         counters.usersAnalyzed += users.length;
 
         users.forEach(function (user) {
@@ -311,7 +332,9 @@
           if (profiles.indexOf('CONTROLLER') >= 0) counters.controllerUsers += 1;
           if (profiles.indexOf('ADMIN') >= 0 && profiles.indexOf('CONTROLLER') >= 0) counters.bothUsers += 1;
 
-          resultRows.push(buildResultRow(user, company, profiles));
+          var row = buildResultRow(user, company, profiles);
+          row['Tipo de Entidad'] = tipoEntidad;
+          resultRows.push(row);
         });
       } catch (e) {
         counters.errors += 1;

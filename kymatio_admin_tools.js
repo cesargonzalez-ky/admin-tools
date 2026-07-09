@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-07-09-sidebar-admin-profile-audit_v3';
+  var VERSION = '2026-07-09-sidebar-v2';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',
@@ -217,7 +217,7 @@
   // ── Sidebar ──────────────────────────────────────────────────────────────────
 
   function sidebarSection(label) {
-    return '<div style="padding:6px 10px 2px;font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.8px">' + label + '</div>';
+    return '<div style="padding:8px 10px 4px;font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.6px;margin-top:4px">' + label + '</div>';
   }
 
   function renderSidebarButtons() {
@@ -240,7 +240,7 @@
       });
     }
     if (bulkMods.length) {
-      html += sidebarSection('Masivo');
+      html += sidebarSection('Acciones masivas');
       bulkMods.forEach(function (mod) {
         var navId = NAV_MAP[mod.key] || ('kym-nav-' + mod.key);
         var active = state.currentSection === mod.key;
@@ -271,7 +271,7 @@
       var colBtn = $('kym-adm-collapse');
       if (content) content.style.display = 'flex';
       if (panel) panel.style.width = 'calc(180px + 50vw)';
-      if (colBtn) colBtn.textContent = '\u25c4';
+      if (colBtn) colBtn.innerHTML = '\u25c4 Contraer';
       localStorage.setItem('kym-panel-collapsed', '0');
     }
 
@@ -281,7 +281,7 @@
     if (!mod) return;
 
     $('kym-adm-section-title').innerHTML = (mod.icon || '&#8226;') + ' ' + escHtml(mod.label);
-    $('kym-adm-action').style.display = 'block';
+    // kym-adm-action always visible
 
     if (mod.chatgptUrl) {
       $('kym-adm-btn-chatgpt').href = mod.chatgptUrl;
@@ -354,19 +354,19 @@
 
     // Cabecera del sidebar: botones contraer y cerrar (pequeños, arriba)
     var sidebarHeader = document.createElement('div');
-    sidebarHeader.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:4px;padding:6px 8px;border-bottom:1px solid #e2e8f0;';
+    sidebarHeader.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding:8px;border-bottom:1px solid #e2e8f0;';
 
     var colBtn = document.createElement('button');
     colBtn.id = 'kym-adm-collapse';
     colBtn.title = state.collapsed ? 'Expandir' : 'Contraer';
-    colBtn.textContent = state.collapsed ? '\u25ba' : '\u25c4';
-    colBtn.style.cssText = 'background:none;border:1px solid #e2e8f0;border-radius:5px;cursor:pointer;font-size:10px;color:#64748b;padding:3px 7px;line-height:1;';
+    colBtn.innerHTML = (state.collapsed ? '\u25ba' : '\u25c4') + ' ' + (state.collapsed ? 'Expandir' : 'Contraer');
+    colBtn.style.cssText = 'background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;color:#475569;padding:5px 8px;text-align:left;width:100%;';
 
     var closeBtn = document.createElement('button');
     closeBtn.id = 'kym-adm-close';
     closeBtn.title = 'Cerrar';
-    closeBtn.textContent = '\u00d7';
-    closeBtn.style.cssText = 'background:none;border:1px solid #e2e8f0;border-radius:5px;cursor:pointer;font-size:13px;color:#64748b;padding:1px 6px;line-height:1;';
+    closeBtn.innerHTML = '\u00d7 Cerrar panel';
+    closeBtn.style.cssText = 'background:#fff5f5;border:1px solid #fecaca;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;color:#c53030;padding:5px 8px;text-align:left;width:100%;';
 
     sidebarHeader.appendChild(colBtn);
     sidebarHeader.appendChild(closeBtn);
@@ -375,12 +375,10 @@
     var companyBadge = document.createElement('div');
     companyBadge.style.cssText = 'padding:8px 10px;border-bottom:1px solid #e2e8f0;';
     companyBadge.innerHTML =
-      '<div style="font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Empresa activa</div>' +
-      '<div class="kym-company-name" style="font-size:11px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(state.companyName || '\u2014') + '</div>' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">' +
-        '<span class="kym-company-id" style="font-size:10px;color:#64748b;">ID: ' + escHtml(state.companyId || '?') + '</span>' +
-        '<button id="kym-adm-refresh-company" style="font-size:9px;background:#1e293b;color:white;border:none;border-radius:4px;padding:2px 6px;cursor:pointer;">\u21bb</button>' +
-      '</div>';
+      '<div style="font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Empresa activa</div>' +
+      '<div class="kym-company-name" style="font-size:13px;font-weight:800;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(state.companyName || '\u2014') + '</div>' +
+      '<div style="font-size:11px;color:#64748b;margin-top:2px">ID: <span class="kym-company-id">' + escHtml(state.companyId || '?') + '</span></div>' +
+      '<button id="kym-adm-refresh-company" style="margin-top:5px;width:100%;font-size:10px;background:#1e293b;color:white;border:none;border-radius:5px;padding:4px 0;cursor:pointer;font-weight:700;">\u21bb Actualizar empresa</button>';
 
     // Lista de módulos en el sidebar
     var sidebarList = document.createElement('div');
@@ -408,7 +406,7 @@
     // Área de acción (título + botones)
     var actionEl = document.createElement('div');
     actionEl.id = 'kym-adm-action';
-    actionEl.style.cssText = 'display:none;flex:1;flex-direction:column;overflow:auto;min-height:0;';
+    actionEl.style.cssText = 'display:flex;flex:1;flex-direction:column;overflow:auto;min-height:0;';
 
     actionEl.innerHTML =
       '<div style="padding:12px 18px 0;border-bottom:1px solid #e2e8f0;flex-shrink:0;">' +
@@ -444,12 +442,7 @@
     contentEl.appendChild(contentHeader);
     contentEl.appendChild(actionEl);
 
-    // Placeholder cuando no hay sección seleccionada
-    var placeholder = document.createElement('div');
-    placeholder.id = 'kym-adm-placeholder';
-    placeholder.style.cssText = 'flex:1;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;';
-    placeholder.textContent = '\u2190 Selecciona un m\u00f3dulo';
-    contentEl.appendChild(placeholder);
+
 
     panel.appendChild(sidebarEl);
     panel.appendChild(contentEl);
@@ -470,7 +463,6 @@
       state.companyData = null;
       state.currentSection = null;
       updateCompanyBanner();
-      $('kym-adm-action').style.display = 'none';
       resetActionPanels();
       renderSidebarButtons();
       showToast('Empresa actualizada', 'ok');
@@ -483,18 +475,17 @@
       var colBtn = $('kym-adm-collapse');
       if (state.collapsed) {
         if (content) content.style.display = 'none';
-        if (panel) panel.style.width = '180px'; // solo sidebar visible
-        if (colBtn) { colBtn.textContent = '\u25ba'; colBtn.title = 'Expandir'; }
+        if (panel) panel.style.width = '180px';
+        if (colBtn) { colBtn.innerHTML = '\u25ba Expandir'; colBtn.title = 'Expandir'; }
       } else {
         if (content) content.style.display = 'flex';
         if (panel) panel.style.width = 'calc(180px + 50vw)';
-        if (colBtn) { colBtn.textContent = '\u25c4'; colBtn.title = 'Contraer'; }
+        if (colBtn) { colBtn.innerHTML = '\u25c4 Contraer'; colBtn.title = 'Contraer'; }
       }
       localStorage.setItem('kym-panel-collapsed', state.collapsed ? '1' : '0');
     };
 
     $('kym-adm-back').onclick = function () {
-      $('kym-adm-action').style.display = 'none';
       resetActionPanels();
       state.currentSection = null;
       renderSidebarButtons();
