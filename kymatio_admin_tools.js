@@ -385,7 +385,7 @@
     // Lista de módulos en el sidebar
     var sidebarList = document.createElement('div');
     sidebarList.id = 'kym-adm-sidebar';
-    sidebarList.style.cssText = 'flex:1;overflow-y:auto;padding:6px 6px;';
+    sidebarList.style.cssText = 'flex:1;overflow-y:auto;padding:6px 6px;min-height:0;';
 
     sidebarEl.appendChild(sidebarHeader);
     sidebarEl.appendChild(companyBadge);
@@ -408,7 +408,7 @@
     // Área de acción (título + botones)
     var actionEl = document.createElement('div');
     actionEl.id = 'kym-adm-action';
-    actionEl.style.cssText = 'display:none;flex:1;flex-direction:column;overflow:hidden;min-height:0;';
+    actionEl.style.cssText = 'display:none;flex:1;flex-direction:column;overflow:auto;min-height:0;';
 
     actionEl.innerHTML =
       '<div style="padding:12px 18px 0;border-bottom:1px solid #e2e8f0;flex-shrink:0;">' +
@@ -425,21 +425,21 @@
         '<button id="kym-adm-btn-view" style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;color:#1a202c;">&#128065; Ver JSON</button>' +
         '<button id="kym-adm-btn-edit" style="flex:1;background:#1e293b;color:white;border:none;border-radius:8px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;">&#9998; Editar JSON</button>' +
       '</div>' +
-      '<div id="kym-adm-view-panel" style="display:none;flex:1;flex-direction:column;overflow:hidden;padding:12px 18px;">' +
+      '<div id="kym-adm-view-panel" style="display:none;flex:1;flex-direction:column;overflow:auto;padding:12px 18px;min-height:0;">' +
         '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">' +
           '<button id="kym-adm-copy" style="font-size:11px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:5px 12px;cursor:pointer;font-weight:600;">&#128203; Copiar</button>' +
         '</div>' +
-        '<pre id="kym-adm-json-view" style="flex:1;overflow:auto;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:14px;font-size:12px;font-family:Menlo,Consolas,monospace;margin:0;white-space:pre-wrap;word-break:break-all;"></pre>' +
+        '<pre id="kym-adm-json-view" style="flex:1;min-height:300px;overflow:auto;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:14px;font-size:12px;font-family:Menlo,Consolas,monospace;margin:0;white-space:pre-wrap;word-break:break-all;"></pre>' +
       '</div>' +
-      '<div id="kym-adm-edit-panel" style="display:none;flex:1;flex-direction:column;overflow:hidden;padding:12px 18px;">' +
+      '<div id="kym-adm-edit-panel" style="display:none;flex:1;flex-direction:column;overflow:auto;padding:12px 18px;min-height:0;">' +
         '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
           '<button id="kym-adm-btn-load" style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:12px;font-weight:600;cursor:pointer;color:#1a202c;">&#8635; Cargar actual</button>' +
           '<button id="kym-adm-btn-save" style="flex:1;background:#0f766e;color:white;border:none;border-radius:6px;padding:6px;font-size:12px;font-weight:600;cursor:pointer;">&#128190; Guardar</button>' +
         '</div>' +
-        '<textarea id="kym-adm-json-edit" spellcheck="false" style="flex:1;background:#0f172a;color:#e2e8f0;border:none;border-radius:8px;padding:14px;font-size:12px;font-family:Menlo,Consolas,monospace;resize:none;outline:none;"></textarea>' +
+        '<textarea id="kym-adm-json-edit" spellcheck="false" style="flex:1;min-height:300px;background:#0f172a;color:#e2e8f0;border:none;border-radius:8px;padding:14px;font-size:12px;font-family:Menlo,Consolas,monospace;resize:none;outline:none;"></textarea>' +
         '<div id="kym-adm-save-status" style="display:none;margin-top:8px;"></div>' +
       '</div>' +
-      '<div id="kym-adm-gui-container" style="display:none;flex:1;overflow-y:auto;padding:14px 18px;"></div>';
+      '<div id="kym-adm-gui-container" style="display:none;flex:1;overflow-y:auto;padding:14px 18px;min-height:0;box-sizing:border-box;"></div>';
 
     contentEl.appendChild(contentHeader);
     contentEl.appendChild(actionEl);
