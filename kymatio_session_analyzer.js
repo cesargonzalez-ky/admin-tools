@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-39-hassuccessor-fix';
+  var VERSION = 'session-analyzer-40-decode-html';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -745,7 +745,7 @@
         chooseDuplicateActions(byType[k]).forEach(function (a) {
           rows.duplicates.push(Object.assign({}, base, {
             ambito: opts.includeOutsideSurveyFlow && !sf.surveyTypeSetInFlow[String(Number(a.remove.surveyTypeId))] ? 'Fuera surveyFlow' : 'SurveyFlow',
-            sesion: a.remove.surveyName || a.keep.surveyName || '',
+            sesion: decodeHtml(a.remove.surveyName || a.keep.surveyName) || '',
             surveyTypeId: a.remove.surveyTypeId || a.keep.surveyTypeId || '',
             surveyFamilyId: a.remove.surveyFamilyId || a.keep.surveyFamilyId || '',
             surveyEntityIdEliminar: a.remove.surveyEntityId || '',
@@ -775,7 +775,7 @@
             if (lastOfFlow) {
               // Final de la rama de cyber — reportar con nota informativa (para filtrado)
               rows.noNext.push(Object.assign({}, base, {
-                ultimaSesionCompletada: last.surveyName || '',
+                ultimaSesionCompletada: decodeHtml(last.surveyName) || '',
                 surveyTypeId: last.surveyTypeId || '',
                 fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
                 nota: 'Final de la rama de ciberconcienciacion'
@@ -784,7 +784,7 @@
               // No es el final del flujo y no tiene cyber pendiente — reportar siempre
               // (el sucesor en el surveyFlow no garantiza que la sesión esté asignada al usuario)
               rows.noNext.push(Object.assign({}, base, {
-                ultimaSesionCompletada: last.surveyName || '',
+                ultimaSesionCompletada: decodeHtml(last.surveyName) || '',
                 surveyTypeId: last.surveyTypeId || '',
                 fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
                 nota: 'Sin siguiente sesion en surveyFlow'
@@ -805,7 +805,7 @@
               sfFinished.sort(function(a,b){ return dateValue(b.questionDate||b.dateStatus||b.userStartDate) - dateValue(a.questionDate||a.dateStatus||a.userStartDate); });
               var lastSf = sfFinished[0];
               rows.noNext.push(Object.assign({}, base, {
-                ultimaSesionCompletada: lastSf ? (lastSf.surveyName || '') : '',
+                ultimaSesionCompletada: lastSf ? (decodeHtml(lastSf.surveyName) || '') : '',
                 surveyTypeId: lastSf ? (lastSf.surveyTypeId || '') : '',
                 fecha: lastSf ? (lastSf.questionDate || lastSf.dateStatus || lastSf.userStartDate || '') : '',
                 nota: 'Welcome completada sin sesiones de ciberconcienciacion'
