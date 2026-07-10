@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = 'session-analyzer-38-type-equivalences';
+  var VERSION = 'session-analyzer-39-hassuccessor-fix';
   var API = 'https://api.kymatio.com/v2';
   var BATCH_SIZE = 20;
   var SLEEP_MS = 300;
@@ -772,8 +772,6 @@
             var last = finished[0];
             var lastCyberId = sf.lastCyberSurveyTypeIdInFlow || sf.lastSurveyTypeIdInFlow;
             var lastOfFlow = String(lastCyberId || '') === String(last.surveyTypeId || '');
-            var hasSuccessor = !!(sf.surveyTypeHasSuccessor && sf.surveyTypeHasSuccessor[String(last.surveyTypeId || '')]);
-
             if (lastOfFlow) {
               // Final de la rama de cyber — reportar con nota informativa (para filtrado)
               rows.noNext.push(Object.assign({}, base, {
@@ -782,7 +780,9 @@
                 fecha: last.questionDate || last.dateStatus || last.userStartDate || '',
                 nota: 'Final de la rama de ciberconcienciacion'
               }));
-            } else if (!hasSuccessor) {
+            } else {
+              // No es el final del flujo y no tiene cyber pendiente — reportar siempre
+              // (el sucesor en el surveyFlow no garantiza que la sesión esté asignada al usuario)
               rows.noNext.push(Object.assign({}, base, {
                 ultimaSesionCompletada: last.surveyName || '',
                 surveyTypeId: last.surveyTypeId || '',
@@ -790,7 +790,6 @@
                 nota: 'Sin siguiente sesion en surveyFlow'
               }));
             }
-            // hasSuccessor: sesión futura programada — no reportar
           } else {
             // Sin cyber completada ni pendiente
             // Solo reportar si la welcome está FINISH — si no, el usuario aún está en onboarding
