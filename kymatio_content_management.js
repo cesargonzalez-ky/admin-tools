@@ -238,7 +238,8 @@
     sidebarTitle.style.cssText = 'padding:10px;border-bottom:1px solid #e2e8f0;flex-shrink:0;';
     sidebarTitle.innerHTML =
       '<div style="font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Gestión de Contenidos</div>' +
-      '<div style="font-size:10px;color:#94a3b8;margin-top:2px">' + escHtml(VERSION) + '</div>';
+      '<div style="font-size:10px;color:#94a3b8;margin-top:2px;line-height:1.5">Core: ' + escHtml(VERSION) + '</div>' +
+'';
 
     // Lista módulos
     var sidebarList = document.createElement('div');

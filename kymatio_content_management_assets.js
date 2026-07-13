@@ -120,6 +120,9 @@
 
   function render(container, kcm) {
     container.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+        '<span style="font-size:11px;color:#94a3b8;">v: ' + kcm.escHtml(MOD_VERSION) + '</span>' +
+      '</div>' +
       '<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#0369a1;line-height:1.6">' +
         'Exporta <strong>todos los assets</strong> de la plataforma (activos e inactivos).<br>' +
         'El título se obtiene en <strong>español (es-es)</strong> cuando está disponible.' +
