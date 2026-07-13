@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'assets-v3';
+  var MOD_VERSION = 'assets-v4';
 
   if (!window.KymatioContentManagement) {
     console.error('KCM: core no cargado');
@@ -37,26 +37,31 @@
   async function fetchAllAssets(onProgress) {
     var all = [];
     var seen = {};
-    var pageSize = 500;
+    var pageSize = 100;
     var PARAMS_BASE = { limit: pageSize, sortBy: 'assetId', order: 'asc', locale: 'es-es' };
 
     async function fetchPages(extraParams, label) {
       var page = 1;
+      var totalPages = null;
       while (true) {
         var params = Object.assign({}, PARAMS_BASE, extraParams, { page: page });
         var r = await KCM.apiGet('admin/mgm/assets', params);
         var records = r.records || [];
-        var added = 0;
+        // Leer totalPages de la respuesta real (la API puede ignorar el limit pedido)
+        var meta = r._meta && r._meta.pagination;
+        if (meta && meta.totalPages && totalPages === null) totalPages = meta.totalPages;
+        var realLimit = (meta && meta.limit) || pageSize;
         records.forEach(function(a) {
           if (!seen[a.assetId]) {
             seen[a.assetId] = true;
             all.push(a);
-            added++;
           }
         });
         if (onProgress) onProgress(all.length, label);
-        // Parar cuando no hay más registros nuevos o la página está vacía
-        if (!records.length || records.length < pageSize) break;
+        // Parar cuando llegamos a la última página según la API
+        if (!records.length) break;
+        if (totalPages !== null && page >= totalPages) break;
+        if (totalPages === null && records.length < realLimit) break;
         page++;
       }
     }
