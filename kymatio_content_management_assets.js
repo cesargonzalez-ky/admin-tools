@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'assets-v1';
+  var MOD_VERSION = 'assets-v3';
 
   if (!window.KymatioContentManagement) {
     console.error('KCM: core no cargado');
@@ -13,53 +13,74 @@
   // ── Utilidades ───────────────────────────────────────────────────────────────
 
   function getTitleEs(asset) {
+    // Con locale=es-es la API devuelve el link ya en español en asset.link
+    // Fallback al dictionary por si acaso
+    if (asset.link) return asset.link;
     try {
       var esEs = asset.asset && asset.asset.dictionary && asset.asset.dictionary['es-es'];
       if (esEs && esEs.default && esEs.default.link) return esEs.default.link;
     } catch(e) {}
-    return asset.link || '';
+    return '';
+  }
+
+  async function fetchCompanyMap() {
+    var r = await KCM.apiGet('admin/stakeholders/companies/1/companies', {fiscalCode: false, tags: false, services: false});
+    var map = {};
+    (r.records || []).forEach(function(c) {
+      map[String(c.stakeholderId)] = c.name || '';
+    });
+    // Incluir empresa raíz (id=1, HAP)
+    map['1'] = 'HAP';
+    return map;
   }
 
   async function fetchAllAssets(onProgress) {
     var all = [];
-    var pageSize = 100;
+    var seen = {};
+    var pageSize = 500;
+    var PARAMS_BASE = { limit: pageSize, sortBy: 'assetId', order: 'asc', locale: 'es-es' };
 
-    // Activos
-    var page = 1;
-    while (true) {
-      var r = await KCM.apiGet('admin/mgm/assets', { page: page, limit: pageSize, sortBy: 'psychoCode', order: 'asc', isActive: true });
-      var records = r.records || [];
-      all = all.concat(records.map(function(a){ return Object.assign({}, a, {_isActive: true}); }));
-      if (onProgress) onProgress(all.length, 'activos');
-      var pag = r.pagination || {};
-      if (!records.length || records.length < pageSize) break;
-      page++;
+    async function fetchPages(extraParams, label) {
+      var page = 1;
+      while (true) {
+        var params = Object.assign({}, PARAMS_BASE, extraParams, { page: page });
+        var r = await KCM.apiGet('admin/mgm/assets', params);
+        var records = r.records || [];
+        var added = 0;
+        records.forEach(function(a) {
+          if (!seen[a.assetId]) {
+            seen[a.assetId] = true;
+            all.push(a);
+            added++;
+          }
+        });
+        if (onProgress) onProgress(all.length, label);
+        // Parar cuando no hay más registros nuevos o la página está vacía
+        if (!records.length || records.length < pageSize) break;
+        page++;
+      }
     }
 
-    // Inactivos
-    page = 1;
-    while (true) {
-      var r2 = await KCM.apiGet('admin/mgm/assets', { page: page, limit: pageSize, sortBy: 'psychoCode', order: 'asc', isActive: false });
-      var records2 = r2.records || [];
-      all = all.concat(records2.map(function(a){ return Object.assign({}, a, {_isActive: false}); }));
-      if (onProgress) onProgress(all.length, 'inactivos');
-      if (!records2.length || records2.length < pageSize) break;
-      page++;
-    }
+    await fetchPages({ isActive: true }, 'activos');
+    await fetchPages({ isActive: false }, 'inactivos');
 
     return all;
   }
 
-  function buildRows(assets) {
+  function buildRows(assets, companyMap) {
     return assets.map(function(a) {
       var langs = '';
       try {
         if (a.asset && a.asset.dictionary) langs = Object.keys(a.asset.dictionary).sort().join(', ');
       } catch(e) {}
+      var companyId = a.stakeholderCompanyId || '';
+      var companyName = (companyMap && companyId && companyMap[String(companyId)]) || '';
       return {
         'assetId':             a.assetId,
         'psychoCode':          a.psychoCode || '',
         'Título (es-es)':      getTitleEs(a),
+        'Organización':        companyName,
+        'organizationId':      companyId,
         'family':              a.family || '',
         'type':                a.type || '',
         'assetsCount':         a.assetsCount != null ? a.assetsCount : '',
@@ -69,8 +90,8 @@
     });
   }
 
-  function exportExcel(assets) {
-    var rows = buildRows(assets);
+  function exportExcel(assets, companyMap) {
+    var rows = buildRows(assets, companyMap);
     var ws = window.XLSX.utils.json_to_sheet(rows);
     var cols = Object.keys(rows[0] || {});
     ws['!cols'] = cols.map(function(col) {
@@ -138,6 +159,9 @@
       setStatus('Cargando assets...', 'info');
 
       try {
+        setStatus('Cargando mapa de organizaciones...', 'info');
+        var companyMap = await fetchCompanyMap();
+        setStatus('Cargando assets...', 'info');
         var assets = await fetchAllAssets(function(count, tipo) {
           var bar = document.getElementById('kcm-assets-bar');
           var txt = document.getElementById('kcm-assets-progress-text');
@@ -154,7 +178,7 @@
         setStatus('Generando Excel...', 'info');
 
         await kcm.loadXlsx();
-        exportExcel(assets);
+        exportExcel(assets, companyMap);
 
         document.getElementById('kcm-assets-progress').style.display = 'none';
         setStatus('&#10003; Excel descargado. ' + assets.length + ' assets exportados.', 'ok');
