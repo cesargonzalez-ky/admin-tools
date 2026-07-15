@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'actions-v2';
+  var MOD_VERSION = 'actions-v3';
 
   if (!window.KymatioContentManagement) {
     console.error('KCM: core no cargado');
@@ -26,7 +26,7 @@
     var totalPages = null;
     while (true) {
       var r = await KCM.apiGet('admin/mgm/assets', {
-        page: page, limit: 100, isActive: true,
+        page: page, limit: 100, isActive: true, family: 'awareness',
         sortBy: 'assetId', order: 'asc', locale: 'es-es'
       });
       var records = r.records || [];
@@ -44,7 +44,7 @@
     page = 1; totalPages = null;
     while (true) {
       var r2 = await KCM.apiGet('admin/mgm/assets', {
-        page: page, limit: 100, isActive: false,
+        page: page, limit: 100, isActive: false, family: 'awareness',
         sortBy: 'assetId', order: 'asc', locale: 'es-es'
       });
       var records2 = r2.records || [];
