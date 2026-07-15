@@ -1,10 +1,11 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-07-13-content-mgmt-v1';
+  var VERSION = '2026-07-13-content-mgmt-v2';
 
   var MODULE_FILES = [
-    'kymatio_content_management_assets.js'
+    'kymatio_content_management_assets.js',
+    'kymatio_content_management_actions.js'
   ];
 
   // ── Utilidades core ──────────────────────────────────────────────────────────
