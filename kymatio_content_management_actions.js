@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'actions-v5';
+  var MOD_VERSION = 'actions-v6';
 
   if (!window.KymatioContentManagement) {
     console.error('KCM: core no cargado');
@@ -18,6 +18,27 @@
       var d = field.dictionary[loc];
       return d.default || '';
     } catch(e) { return ''; }
+  }
+
+  async function fetchReferenceMaps() {
+    var token = localStorage.getItem('token') || localStorage.getItem('access_token') || '';
+    function apiRaw(path) {
+      return fetch('https://api.kymatio.com/v2/' + path, {
+        headers: {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}
+      }).then(function(r){ return r.json(); }).then(function(d){ return d.records || []; });
+    }
+    var results = await Promise.all([
+      apiRaw('misc/reference/sessions'),
+      apiRaw('misc/reference/services'),
+      apiRaw('misc/reference/question-groups')
+    ]);
+    var sessionMap = {};
+    results[0].forEach(function(s){ sessionMap[String(s.id)] = s.name || s.label || ''; });
+    var serviceMap = {};
+    results[1].forEach(function(s){ serviceMap[String(s.id)] = s.label || s.name || ''; });
+    var groupMap = {};
+    results[2].forEach(function(g){ groupMap[String(g.id)] = g.name || g.label || ''; });
+    return {sessionMap: sessionMap, serviceMap: serviceMap, groupMap: groupMap};
   }
 
   async function fetchAssetMap() {
@@ -96,7 +117,7 @@
     return all;
   }
 
-  function buildRows(actions, assetMap) {
+  function buildRows(actions, assetMap, refMaps) {
     return actions.map(function(a) {
       var ac = a.action || {};
       var resources = ac.resources || [];
@@ -109,7 +130,11 @@
         'stakeholderCompanyId':      a.stakeholderCompanyId || '',
         'entity':                    ac.entity || '',
         'type':                      ac.type && ac.type.value || '',
-        'session':                   (ac.session && ac.session.value) || '',
+        'session':                   (function(){
+          if (!ac.session) return '';
+          var sid = String(ac.session.id || ac.session.value || '');
+          return (refMaps && refMaps.sessionMap && refMaps.sessionMap[sid]) || ac.session.value || sid;
+        })(),
         'dimension':                 ac.dimension && ac.dimension.value || '',
         'Organización':              getText(ac.organization && ac.organization.text, 'es-es'),
         'organizationId':            ac.organization && ac.organization.value || '',
@@ -126,8 +151,8 @@
     });
   }
 
-  function exportExcel(actions, assetMap) {
-    var rows = buildRows(actions, assetMap);
+  function exportExcel(actions, assetMap, refMaps) {
+    var rows = buildRows(actions, assetMap, refMaps);
     var ws = window.XLSX.utils.json_to_sheet(rows);
     var cols = Object.keys(rows[0] || {});
     ws['!cols'] = cols.map(function(col) {
@@ -185,7 +210,7 @@
       setStatus('Cargando mapa de assets...', 'info');
 
       try {
-        var assetMap = await fetchAssetMap();
+        var [assetMap, refMaps] = await Promise.all([fetchAssetMap(), fetchReferenceMaps()]);
         setStatus('Cargando acciones...', 'info');
         var actions = await fetchAllActions(function(count, tipo) {
           var bar = document.getElementById('kcm-actions-bar');
@@ -201,7 +226,7 @@
         setStatus('Generando Excel...', 'info');
 
         await kcm.loadXlsx();
-        exportExcel(actions, assetMap);
+        exportExcel(actions, assetMap, refMaps);
 
         document.getElementById('kcm-actions-progress').style.display = 'none';
         setStatus('&#10003; Excel descargado. ' + actions.length + ' acciones exportadas.', 'ok');
