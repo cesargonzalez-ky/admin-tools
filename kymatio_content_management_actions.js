@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'actions-v4';
+  var MOD_VERSION = 'actions-v5';
 
   if (!window.KymatioContentManagement) {
     console.error('KCM: core no cargado');
@@ -109,7 +109,7 @@
         'stakeholderCompanyId':      a.stakeholderCompanyId || '',
         'entity':                    ac.entity || '',
         'type':                      ac.type && ac.type.value || '',
-        'session':                   ac.session || '',
+        'session':                   (ac.session && ac.session.value) || '',
         'dimension':                 ac.dimension && ac.dimension.value || '',
         'Organización':              getText(ac.organization && ac.organization.text, 'es-es'),
         'organizationId':            ac.organization && ac.organization.value || '',
