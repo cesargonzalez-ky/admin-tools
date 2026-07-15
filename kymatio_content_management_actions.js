@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'actions-v1';
+  var MOD_VERSION = 'actions-v2';
 
   if (!window.KymatioContentManagement) {
     console.error('KCM: core no cargado');
@@ -18,6 +18,47 @@
       var d = field.dictionary[loc];
       return d.default || '';
     } catch(e) { return ''; }
+  }
+
+  async function fetchAssetMap() {
+    var map = {};
+    var page = 1;
+    var totalPages = null;
+    while (true) {
+      var r = await KCM.apiGet('admin/mgm/assets', {
+        page: page, limit: 100, isActive: true,
+        sortBy: 'assetId', order: 'asc', locale: 'es-es'
+      });
+      var records = r.records || [];
+      var meta = r._meta && r._meta.pagination;
+      if (meta && meta.totalPages && totalPages === null) totalPages = meta.totalPages;
+      records.forEach(function(a) {
+        map[String(a.assetId)] = a.link || ('Asset ' + a.assetId);
+      });
+      if (!records.length) break;
+      if (totalPages !== null && page >= totalPages) break;
+      if (totalPages === null && records.length < 100) break;
+      page++;
+    }
+    // Inactivos también
+    page = 1; totalPages = null;
+    while (true) {
+      var r2 = await KCM.apiGet('admin/mgm/assets', {
+        page: page, limit: 100, isActive: false,
+        sortBy: 'assetId', order: 'asc', locale: 'es-es'
+      });
+      var records2 = r2.records || [];
+      var meta2 = r2._meta && r2._meta.pagination;
+      if (meta2 && meta2.totalPages && totalPages === null) totalPages = meta2.totalPages;
+      records2.forEach(function(a) {
+        if (!map[String(a.assetId)]) map[String(a.assetId)] = a.link || ('Asset ' + a.assetId);
+      });
+      if (!records2.length) break;
+      if (totalPages !== null && page >= totalPages) break;
+      if (totalPages === null && records2.length < 100) break;
+      page++;
+    }
+    return map;
   }
 
   async function fetchAllActions(onProgress) {
@@ -55,9 +96,13 @@
     return all;
   }
 
-  function buildRows(actions) {
+  function buildRows(actions, assetMap) {
     return actions.map(function(a) {
       var ac = a.action || {};
+      var resources = ac.resources || [];
+      var assetsNombres = resources.map(function(id) {
+        return (assetMap && assetMap[String(id)]) ? assetMap[String(id)] + ' (' + id + ')' : 'ID:' + id;
+      }).join('; ');
       return {
         'actionId':                  a.actionId,
         'psychoCode':                a.psychoCode || '',
@@ -75,13 +120,14 @@
         'userDescription (es-es)':   getText(ac.userDescription, 'es-es'),
         'operatorTitle (es-es)':     getText(ac.operatorTitle, 'es-es'),
         'operatorDescription (es-es)': getText(ac.operatorDescription, 'es-es'),
+        'assets (resources)':        assetsNombres,
         'status':                    ac.isActive ? 'Activa' : 'Inactiva'
       };
     });
   }
 
-  function exportExcel(actions) {
-    var rows = buildRows(actions);
+  function exportExcel(actions, assetMap) {
+    var rows = buildRows(actions, assetMap);
     var ws = window.XLSX.utils.json_to_sheet(rows);
     var cols = Object.keys(rows[0] || {});
     ws['!cols'] = cols.map(function(col) {
@@ -136,9 +182,11 @@
       btn.disabled = true; btn.textContent = '⏳ Cargando...';
       document.getElementById('kcm-actions-progress').style.display = 'block';
       document.getElementById('kcm-actions-summary').style.display = 'none';
-      setStatus('Cargando acciones...', 'info');
+      setStatus('Cargando mapa de assets...', 'info');
 
       try {
+        var assetMap = await fetchAssetMap();
+        setStatus('Cargando acciones...', 'info');
         var actions = await fetchAllActions(function(count, tipo) {
           var bar = document.getElementById('kcm-actions-bar');
           var txt = document.getElementById('kcm-actions-progress-text');
@@ -153,7 +201,7 @@
         setStatus('Generando Excel...', 'info');
 
         await kcm.loadXlsx();
-        exportExcel(actions);
+        exportExcel(actions, assetMap);
 
         document.getElementById('kcm-actions-progress').style.display = 'none';
         setStatus('&#10003; Excel descargado. ' + actions.length + ' acciones exportadas.', 'ok');
