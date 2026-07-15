@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'actions-v3';
+  var MOD_VERSION = 'actions-v4';
 
   if (!window.KymatioContentManagement) {
     console.error('KCM: core no cargado');
@@ -72,7 +72,7 @@
       while (true) {
         var r = await KCM.apiGet('admin/mgm/actions', {
           page: page, limit: 100, isActive: isActive,
-          sortBy: 'actionId', order: 'asc', locale: 'es-es'
+          sortBy: 'actionId', order: 'asc'
         });
         var records = r.records || [];
         var meta = r._meta && r._meta.pagination;
