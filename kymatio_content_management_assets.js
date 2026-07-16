@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'assets-v5';
+  var MOD_VERSION = 'assets-v6';
 
   if (!window.KymatioContentManagement) {
     console.error('KCM: core no cargado');
@@ -280,20 +280,31 @@
 
         var keys = Object.keys(data[0]);
         var colId   = keys.find(function(k){ return k.toLowerCase().trim() === 'assetid'; });
+        var colHash = keys.find(function(k){ return k.toLowerCase().trim() === 'hash'; });
         var colCode = keys.find(function(k){ return k.toLowerCase().trim() === 'psychocode'; });
-        if (!colId || !colCode) throw new Error('No se encontraron columnas "assetId" y "psychoCode". Detectadas: ' + keys.join(', '));
 
+        if (!colCode) throw new Error('No se encontró columna "psychoCode". Detectadas: ' + keys.join(', '));
+        if (!colId && !colHash) throw new Error('Se necesita columna "assetId" o "hash". Detectadas: ' + keys.join(', '));
+
+        var useHash = !colId && !!colHash;
         parsedRows = data.map(function(row){
-          return {assetId: String(row[colId]||'').trim(), psychoCode: String(row[colCode]||'').trim()};
-        }).filter(function(r){ return r.assetId && r.psychoCode; });
+          return {
+            assetId:    colId   ? String(row[colId]||'').trim()   : '',
+            hash:       colHash ? String(row[colHash]||'').trim()  : '',
+            psychoCode: String(row[colCode]||'').trim(),
+            useHash:    useHash
+          };
+        }).filter(function(r){ return (r.assetId || r.hash) && r.psychoCode; });
 
         if (!parsedRows.length) throw new Error('No hay filas válidas.');
 
+        var idType = useHash ? 'hash' : 'assetId';
         var prev = document.getElementById('kcm-ma-preview');
         prev.style.display = 'block';
-        prev.innerHTML = '<strong>' + parsedRows.length + ' filas</strong> listas para procesar.<br>' +
+        prev.innerHTML = '<strong>' + parsedRows.length + ' filas</strong> listas. Identificador: <strong>' + idType + '</strong><br>' +
           'Primeras 3: ' + parsedRows.slice(0,3).map(function(r){
-            return '<code>' + kcm.escHtml(r.assetId) + ' → ' + kcm.escHtml(r.psychoCode) + '</code>';
+            var id = r.useHash ? r.hash : r.assetId;
+            return '<code>' + kcm.escHtml(id) + ' → ' + kcm.escHtml(r.psychoCode) + '</code>';
           }).join(' · ');
 
         document.getElementById('kcm-ma-run').style.display = 'block';
@@ -320,19 +331,34 @@
         var bar = document.getElementById('kcm-ma-bar');
         var txt = document.getElementById('kcm-ma-progress-text');
         if (bar) bar.style.width = pct + '%';
-        if (txt) txt.textContent = (i+1) + ' / ' + parsedRows.length + ' — assetId ' + row.assetId;
 
         try {
-          var res = await fetch('https://api.kymatio.com/v2/admin/mgm/assets/' + encodeURIComponent(row.assetId), {
+          var assetId = row.assetId;
+
+          // Si viene hash, resolver a assetId primero
+          if (row.useHash && row.hash) {
+            if (txt) txt.textContent = (i+1) + ' / ' + parsedRows.length + ' — resolviendo hash ' + row.hash;
+            var rg = await fetch('https://api.kymatio.com/v2/admin/mgm/assets?hash=' + encodeURIComponent(row.hash) + '&limit=1', {
+              headers: {'Authorization': 'Bearer ' + token}
+            });
+            var dg = await rg.json();
+            var found = dg.records && dg.records[0];
+            if (!found) throw new Error('No se encontró asset con hash: ' + row.hash);
+            assetId = found.assetId;
+          }
+
+          if (txt) txt.textContent = (i+1) + ' / ' + parsedRows.length + ' — assetId ' + assetId;
+
+          var res = await fetch('https://api.kymatio.com/v2/admin/mgm/assets/' + encodeURIComponent(assetId), {
             method: 'PUT',
             headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
             body: JSON.stringify({psychoCode: row.psychoCode})
           });
           var d = await res.json();
           if (!res.ok) throw new Error((d && d.message) || 'HTTP ' + res.status);
-          ok.push({assetId: row.assetId, psychoCode: row.psychoCode, _status: 'OK', _message: ''});
+          ok.push({assetId: assetId, hash: row.hash || '', psychoCode: row.psychoCode, _status: 'OK', _message: ''});
         } catch(e) {
-          errors.push({assetId: row.assetId, psychoCode: row.psychoCode, _status: 'ERROR', _message: e.message});
+          errors.push({assetId: row.assetId || '', hash: row.hash || '', psychoCode: row.psychoCode, _status: 'ERROR', _message: e.message});
         }
       }
 
