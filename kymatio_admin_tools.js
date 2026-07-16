@@ -16,7 +16,8 @@
     'kymatio_admin_tools_bulk_delete_users.js',
     'kymatio_admin_tools_bulk_user_dept_report.js',
     'kymatio_admin_tools_vishing_templates.js',
-    'kymatio_admin_tools_admin_profile_audit.js'
+    'kymatio_admin_tools_admin_profile_audit.js',
+    'kymatio_admin_tools_user_search.js'
   ];
 
   var NAV_MAP = {
