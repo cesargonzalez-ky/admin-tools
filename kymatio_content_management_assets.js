@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'assets-v4';
+  var MOD_VERSION = 'assets-v5';
 
   if (!window.KymatioContentManagement) {
     console.error('KCM: core no cargado');
@@ -226,6 +226,143 @@
     order: 10,
     version: MOD_VERSION,
     render: render
+  });
+
+  // ── Módulo Modificar psychoCode ─────────────────────────────────────────────
+
+  function renderModificarAssets(container, kcm) {
+    container.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+        '<span style="font-size:11px;color:#94a3b8;">v: ' + kcm.escHtml(MOD_VERSION) + '</span>' +
+      '</div>' +
+      '<div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#92400e;line-height:1.6">' +
+        'Carga un Excel con <strong>assetId</strong> y <strong>psychoCode</strong> para actualizar el código identificativo de cada asset.<br>' +
+        '<strong>Columnas requeridas:</strong> <code>assetId</code> · <code>psychoCode</code>' +
+      '</div>' +
+      '<div style="margin-bottom:12px;">' +
+        '<label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:6px;">Selecciona el Excel:</label>' +
+        '<input type="file" id="kcm-ma-file" accept=".xlsx,.xls" style="font-size:13px;width:100%;box-sizing:border-box;">' +
+      '</div>' +
+      '<div id="kcm-ma-preview" style="display:none;margin-bottom:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:12px;color:#475569;"></div>' +
+      '<button id="kcm-ma-run" style="display:none;width:100%;background:#0f766e;color:white;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px;">&#9654; Ejecutar modificaciones</button>' +
+      '<div id="kcm-ma-status" style="display:none;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:12px;"></div>' +
+      '<div id="kcm-ma-progress" style="display:none;margin-bottom:12px;">' +
+        '<div style="height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-bottom:6px;">' +
+          '<div id="kcm-ma-bar" style="height:100%;background:#0f766e;width:0%;transition:width .3s;"></div>' +
+        '</div>' +
+        '<div id="kcm-ma-progress-text" style="font-size:12px;color:#64748b;text-align:center;"></div>' +
+      '</div>';
+
+    function setStatus(msg, type) {
+      var el = document.getElementById('kcm-ma-status');
+      if (!el) return;
+      var s = {err:'background:#fff5f5;border:1px solid #fed7d7;color:#c53030;', ok:'background:#f0fff4;border:1px solid #9ae6b4;color:#276749;', info:'background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;'};
+      el.style.cssText = 'display:block;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:12px;' + (s[type]||s.info);
+      el.innerHTML = msg;
+    }
+
+    var parsedRows = [];
+
+    document.getElementById('kcm-ma-file').onchange = async function(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      document.getElementById('kcm-ma-preview').style.display = 'none';
+      document.getElementById('kcm-ma-run').style.display = 'none';
+      parsedRows = [];
+
+      try {
+        await kcm.loadXlsx();
+        var buf = await file.arrayBuffer();
+        var wb = window.XLSX.read(buf, {type:'array'});
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        var data = window.XLSX.utils.sheet_to_json(ws, {defval:''});
+        if (!data.length) throw new Error('El archivo está vacío.');
+
+        var keys = Object.keys(data[0]);
+        var colId   = keys.find(function(k){ return k.toLowerCase().trim() === 'assetid'; });
+        var colCode = keys.find(function(k){ return k.toLowerCase().trim() === 'psychocode'; });
+        if (!colId || !colCode) throw new Error('No se encontraron columnas "assetId" y "psychoCode". Detectadas: ' + keys.join(', '));
+
+        parsedRows = data.map(function(row){
+          return {assetId: String(row[colId]||'').trim(), psychoCode: String(row[colCode]||'').trim()};
+        }).filter(function(r){ return r.assetId && r.psychoCode; });
+
+        if (!parsedRows.length) throw new Error('No hay filas válidas.');
+
+        var prev = document.getElementById('kcm-ma-preview');
+        prev.style.display = 'block';
+        prev.innerHTML = '<strong>' + parsedRows.length + ' filas</strong> listas para procesar.<br>' +
+          'Primeras 3: ' + parsedRows.slice(0,3).map(function(r){
+            return '<code>' + kcm.escHtml(r.assetId) + ' → ' + kcm.escHtml(r.psychoCode) + '</code>';
+          }).join(' · ');
+
+        document.getElementById('kcm-ma-run').style.display = 'block';
+      } catch(e) {
+        setStatus('&#10007; ' + kcm.escHtml(e.message), 'err');
+      }
+    };
+
+    document.getElementById('kcm-ma-run').onclick = async function() {
+      if (!parsedRows.length) return;
+      if (!confirm('Se van a modificar ' + parsedRows.length + ' assets.\n\n¿Continuar?')) return;
+
+      var btn = document.getElementById('kcm-ma-run');
+      btn.disabled = true; btn.textContent = '⏳ Procesando...';
+      document.getElementById('kcm-ma-progress').style.display = 'block';
+      setStatus('Procesando...', 'info');
+
+      var ok = [], errors = [];
+      var token = localStorage.getItem('token') || localStorage.getItem('access_token') || '';
+
+      for (var i = 0; i < parsedRows.length; i++) {
+        var row = parsedRows[i];
+        var pct = Math.round((i / parsedRows.length) * 100);
+        var bar = document.getElementById('kcm-ma-bar');
+        var txt = document.getElementById('kcm-ma-progress-text');
+        if (bar) bar.style.width = pct + '%';
+        if (txt) txt.textContent = (i+1) + ' / ' + parsedRows.length + ' — assetId ' + row.assetId;
+
+        try {
+          var res = await fetch('https://api.kymatio.com/v2/admin/mgm/assets/' + encodeURIComponent(row.assetId), {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+            body: JSON.stringify({psychoCode: row.psychoCode})
+          });
+          var d = await res.json();
+          if (!res.ok) throw new Error((d && d.message) || 'HTTP ' + res.status);
+          ok.push({assetId: row.assetId, psychoCode: row.psychoCode, _status: 'OK', _message: ''});
+        } catch(e) {
+          errors.push({assetId: row.assetId, psychoCode: row.psychoCode, _status: 'ERROR', _message: e.message});
+        }
+      }
+
+      if (bar) bar.style.width = '100%';
+      document.getElementById('kcm-ma-progress').style.display = 'none';
+
+      var type = errors.length === 0 ? 'ok' : (ok.length === 0 ? 'err' : 'info');
+      setStatus('&#10003; Completado. OK: <strong>' + ok.length + '</strong> · Errores: <strong>' + errors.length + '</strong>', type);
+
+      await kcm.loadXlsx();
+      var allRows = ok.concat(errors);
+      var ws2 = window.XLSX.utils.json_to_sheet(allRows);
+      ws2['!cols'] = [{wch:15},{wch:40},{wch:10},{wch:50}];
+      var wb2 = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb2, ws2, 'Resultados');
+      window.XLSX.writeFile(wb2, 'kymatio_assets_modificar_' + new Date().toISOString().slice(0,10) + '.xlsx');
+
+      kcm.showToast('Completado: ' + ok.length + ' OK, ' + errors.length + ' errores', errors.length ? 'err' : 'ok');
+      btn.disabled = false; btn.textContent = '▶ Ejecutar modificaciones';
+    };
+  }
+
+  KCM.registerModule({
+    key:     'assets_modificar_psychocode',
+    label:   'Modificar psychoCode',
+    group:   'assets',
+    icon:    '&#9998;',
+    order:   20,
+    version: MOD_VERSION,
+    render:  renderModificarAssets
   });
 
 })();
