@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'bulk-departments-v3';
+  var MOD_VERSION = 'bulk-departments-v4';
   var TAG_FUNCION_DEPT = 2; // Tag "Función del departamento"
 
   if (!window.KymatioAdminTools) { console.error('KAT no cargado'); return; }
@@ -257,7 +257,7 @@
             errors.push({Departamento: row.name, Acción: isCreate ? 'CREAR' : 'MODIFICAR', Parent: row.parent, Position: row.pos, _status: 'ERROR', _message: e.message});
           }
           // Delay entre peticiones para evitar colisiones
-          await new Promise(function(r){ setTimeout(r, 200); });
+          await new Promise(function(r){ setTimeout(r, 400); });
         }
 
         setProgress(100, 'Completado');
