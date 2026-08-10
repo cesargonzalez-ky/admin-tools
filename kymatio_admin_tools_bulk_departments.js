@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'bulk-departments-v2';
+  var MOD_VERSION = 'bulk-departments-v3';
   var TAG_FUNCION_DEPT = 2; // Tag "Función del departamento"
 
   if (!window.KymatioAdminTools) { console.error('KAT no cargado'); return; }
@@ -135,6 +135,36 @@
       }
     };
 
+    function topoSort(rows) {
+      // Primero sin parent, luego con parent. Dentro de cada grupo, mantener orden original.
+      // Iteración múltiple para resolver cadenas de dependencia (A→B→C)
+      var result = [];
+      var remaining = rows.slice();
+      var MAX_PASSES = remaining.length + 1;
+      var pass = 0;
+      while (remaining.length > 0 && pass < MAX_PASSES) {
+        pass++;
+        var added = [];
+        var nextRemaining = [];
+        // Nombres ya en result (en mayúsculas)
+        var resolved = {};
+        result.forEach(function(r){ resolved[r.name.toUpperCase()] = true; });
+        remaining.forEach(function(row) {
+          var parentOk = !row.parent || resolved[row.parent.toUpperCase()];
+          if (parentOk) { added.push(row); }
+          else { nextRemaining.push(row); }
+        });
+        if (added.length === 0) {
+          // No se pudo resolver más — añadir el resto tal cual (darán error de parent no encontrado)
+          result = result.concat(nextRemaining);
+          break;
+        }
+        result = result.concat(added);
+        remaining = nextRemaining;
+      }
+      return result;
+    }
+
     document.getElementById('kat-dept-run').onclick = async function() {
       if (!parsedRows.length) return;
 
@@ -157,6 +187,8 @@
         var deptMap = {}; // nombre.toUpperCase() → stakeholderId
         depts.forEach(function(d){ deptMap[d.name.toUpperCase()] = d.stakeholderId; });
 
+        // Reordenar: primero los que van a ser parent de otros
+        parsedRows = topoSort(parsedRows);
         setStatus('Procesando filas...', 'info');
         document.getElementById('kat-dept-progress').style.display = 'block';
 
@@ -224,6 +256,8 @@
           } catch(e) {
             errors.push({Departamento: row.name, Acción: isCreate ? 'CREAR' : 'MODIFICAR', Parent: row.parent, Position: row.pos, _status: 'ERROR', _message: e.message});
           }
+          // Delay entre peticiones para evitar colisiones
+          await new Promise(function(r){ setTimeout(r, 200); });
         }
 
         setProgress(100, 'Completado');
