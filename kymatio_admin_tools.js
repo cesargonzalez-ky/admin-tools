@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-07-09-sidebar-v2';
+  var VERSION = '2026-08-10-sidebar-v3';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',

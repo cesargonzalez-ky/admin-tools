@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'bulk-departments-v1';
+  var MOD_VERSION = 'bulk-departments-v2';
   var TAG_FUNCION_DEPT = 2; // Tag "Función del departamento"
 
   if (!window.KymatioAdminTools) { console.error('KAT no cargado'); return; }
@@ -37,7 +37,7 @@
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
-  function render(container, kat) {
+  function renderGui(container, kat) {
     container.innerHTML =
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
         '<span style="font-size:11px;color:#94a3b8;">v: ' + kat.escHtml(MOD_VERSION) + '</span>' +
@@ -262,7 +262,8 @@
     icon:    '&#127970;',
     order:   55,
     version: MOD_VERSION,
-    render:  render
+    renderGui: renderGui,
+    forceGuiOnly: true
   });
 
 })();
