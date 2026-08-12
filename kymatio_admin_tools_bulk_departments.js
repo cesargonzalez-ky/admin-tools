@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'bulk-departments-rename-v1';
+  var MOD_VERSION = 'bulk-departments-rename-v2';
 
   if (!window.KymatioAdminTools) { console.error('KAT no cargado'); return; }
   var KAT = window.KymatioAdminTools;
@@ -20,6 +20,13 @@
     var d = await res.json();
     if (!res.ok) {
       var msg = (d && d.message) || (d && d.records && d.records.devMessage) || ('HTTP ' + res.status);
+      // Detectar nombre duplicado
+      if (res.status === 400 && (msg.toLowerCase().indexOf('duplicate') >= 0 || msg.toLowerCase().indexOf('exist') >= 0 || msg.toLowerCase().indexOf('ya existe') >= 0)) {
+        throw new Error('El nombre nuevo ya existe en otro departamento');
+      }
+      if (res.status === 400) {
+        throw new Error('Nombre inválido o ya existe un departamento con ese nombre (HTTP 400)');
+      }
       throw new Error(msg);
     }
     return d.records || d;
@@ -35,28 +42,46 @@
     });
   }
 
+  function addLog(container, msg, type) {
+    var line = document.createElement('div');
+    line.style.cssText = 'padding:2px 0;' + (type === 'ok' ? 'color:#4ade80;' : type === 'err' ? 'color:#f87171;' : 'color:#94a3b8;');
+    line.textContent = (type === 'ok' ? '✓ ' : type === 'err' ? '✗ ' : '· ') + msg;
+    container.appendChild(line);
+    container.scrollTop = container.scrollHeight;
+  }
+
   function renderGui(container, kat) {
     container.innerHTML =
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
         '<span style="font-size:11px;color:#94a3b8;">v: ' + kat.escHtml(MOD_VERSION) + '</span>' +
       '</div>' +
-      '<div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#92400e;line-height:1.6">' +
-        'Carga un Excel con dos columnas: <strong>Nombre antiguo</strong> y <strong>Nombre nuevo</strong>.<br>' +
-        'El sistema buscará cada departamento por nombre y lo renombrará.' +
+
+      '<div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#92400e;line-height:1.7">' +
+        'Carga un Excel con dos columnas:<br>' +
+        '&nbsp;&nbsp;<strong>Columna A</strong> — Nombre antiguo del departamento<br>' +
+        '&nbsp;&nbsp;<strong>Columna B</strong> — Nombre nuevo del departamento<br>' +
+        '<span style="font-size:11px;color:#a16207;">No se comprueban las cabeceras. Si la primera fila tiene texto en ambas columnas, se procesará también.</span>' +
       '</div>' +
+
       '<div style="margin-bottom:12px;">' +
         '<label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:6px;">Selecciona el Excel:</label>' +
         '<input type="file" id="kat-ren-file" accept=".xlsx,.xls" style="font-size:13px;width:100%;box-sizing:border-box;">' +
       '</div>' +
+
       '<div id="kat-ren-preview" style="display:none;margin-bottom:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:12px;color:#475569;"></div>' +
+
       '<button id="kat-ren-run" style="display:none;width:100%;background:#1e293b;color:white;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px;">&#9654; Renombrar departamentos</button>' +
+
       '<div id="kat-ren-status" style="display:none;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:12px;"></div>' +
-      '<div id="kat-ren-progress" style="display:none;margin-bottom:12px;">' +
+
+      '<div id="kat-ren-progress" style="display:none;margin-bottom:8px;">' +
         '<div style="height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-bottom:6px;">' +
           '<div id="kat-ren-bar" style="height:100%;background:#1e293b;width:0%;transition:width .3s;"></div>' +
         '</div>' +
-        '<div id="kat-ren-progress-text" style="font-size:12px;color:#64748b;text-align:center;"></div>' +
-      '</div>';
+        '<div id="kat-ren-progress-text" style="font-size:12px;color:#64748b;text-align:center;margin-bottom:8px;"></div>' +
+      '</div>' +
+
+      '<div id="kat-ren-console" style="display:none;background:#0f172a;border-radius:8px;padding:12px;font-size:12px;font-family:Menlo,Consolas,monospace;height:200px;overflow-y:auto;margin-bottom:12px;"></div>';
 
     function setStatus(msg, type) {
       var el = document.getElementById('kat-ren-status');
@@ -80,6 +105,7 @@
       if (!file) return;
       document.getElementById('kat-ren-preview').style.display = 'none';
       document.getElementById('kat-ren-run').style.display = 'none';
+      document.getElementById('kat-ren-console').style.display = 'none';
       parsedRows = [];
 
       try {
@@ -87,29 +113,27 @@
         var buf = await file.arrayBuffer();
         var wb = window.XLSX.read(buf, {type:'array'});
         var ws = wb.Sheets[wb.SheetNames[0]];
+        // Leer como array de arrays — sin interpretar cabeceras
         var data = window.XLSX.utils.sheet_to_json(ws, {defval:'', header:1});
 
-        // Ignorar fila de cabecera si es texto, tomar todas las filas con dos valores
-        var rows = [];
-        data.forEach(function(row, i) {
-          var old = String(row[0] || '').trim();
-          var neu = String(row[1] || '').trim();
-          if (!old || !neu) return;
-          // Ignorar si la primera celda parece cabecera
-          if (i === 0 && /nombre|name|department|old|nuevo|new/i.test(old)) return;
-          rows.push({oldName: old, newName: neu});
+        data.forEach(function(row) {
+          // Col A → nombre antiguo, Col B → nombre nuevo
+          var oldName = String(row[0] || '').trim().toUpperCase();
+          var newName = String(row[1] || '').trim().toUpperCase();
+          if (oldName && newName) {
+            parsedRows.push({oldName: oldName, newName: newName});
+          }
         });
 
-        if (!rows.length) throw new Error('No se encontraron filas con datos.');
-
-        parsedRows = rows;
+        if (!parsedRows.length) throw new Error('No se encontraron filas con datos en ambas columnas.');
 
         var prev = document.getElementById('kat-ren-preview');
         prev.style.display = 'block';
-        prev.innerHTML = '<strong>' + rows.length + ' renombrados</strong> para procesar.<br>' +
-          'Primeras filas: ' + rows.slice(0,4).map(function(r){
+        prev.innerHTML = '<strong>' + parsedRows.length + ' filas</strong> detectadas (nombres en mayúsculas).<br>' +
+          parsedRows.slice(0,4).map(function(r){
             return '<code>' + kat.escHtml(r.oldName) + ' → ' + kat.escHtml(r.newName) + '</code>';
-          }).join(' · ');
+          }).join('<br>') +
+          (parsedRows.length > 4 ? '<br><span style="color:#94a3b8;">...y ' + (parsedRows.length-4) + ' más</span>' : '');
 
         document.getElementById('kat-ren-run').style.display = 'block';
 
@@ -128,57 +152,53 @@
 
       var btn = document.getElementById('kat-ren-run');
       btn.disabled = true; btn.textContent = '⏳ Procesando...';
+
+      var consoleEl = document.getElementById('kat-ren-console');
+      consoleEl.style.display = 'block';
+      consoleEl.innerHTML = '';
       document.getElementById('kat-ren-progress').style.display = 'block';
-      setStatus('Cargando departamentos existentes...', 'info');
 
       var ok = [], errors = [];
 
       try {
-        // 1. Descargar listado completo → mapa nombre.toUpperCase() → id
+        // 1. Cargar listado completo
+        setStatus('Cargando departamentos...', 'info');
+        addLog(consoleEl, 'Cargando listado de departamentos de ' + kat.state.companyName + '...', 'info');
+
         var deptData = await apiCall('GET', 'admin/stakeholders/companies/' + cid + '/departments');
         var depts = Array.isArray(deptData) ? deptData : (deptData.records || []);
         var deptMap = {};
         depts.forEach(function(d){ deptMap[d.name.toUpperCase()] = d.stakeholderId; });
 
-        setStatus('Renombrando...', 'info');
+        addLog(consoleEl, depts.length + ' departamentos cargados.', 'info');
+        setStatus('Procesando...', 'info');
 
-        // 2. Por cada fila: buscar por nombre antiguo → PUT con nombre nuevo
+        // 2. Procesar cada fila
         for (var i = 0; i < parsedRows.length; i++) {
           var row = parsedRows[i];
-          var pct = Math.round((i / parsedRows.length) * 100);
-          setProgress(pct, (i+1) + ' / ' + parsedRows.length + ' — ' + row.oldName);
+          var pct = Math.round(((i + 1) / parsedRows.length) * 100);
+          setProgress(pct, (i+1) + ' / ' + parsedRows.length);
 
-          var deptId = deptMap[row.oldName.toUpperCase()];
+          var deptId = deptMap[row.oldName];
 
           if (!deptId) {
-            errors.push({
-              'Nombre antiguo': row.oldName,
-              'Nombre nuevo':   row.newName,
-              _status:          'ERROR',
-              _message:         'Departamento no encontrado en la empresa'
-            });
+            var errMsg = 'No encontrado en la empresa';
+            errors.push({'Nombre antiguo': row.oldName, 'Nombre nuevo': row.newName, _status: 'ERROR', _message: errMsg});
+            addLog(consoleEl, row.oldName + ' → ' + row.newName + ' · ' + errMsg, 'err');
           } else {
             try {
               await apiCall('PUT', 'admin/stakeholders/departments/' + deptId, {
                 name: row.newName,
                 stakeholderCompanyId: String(cid)
               });
-              ok.push({
-                'Nombre antiguo': row.oldName,
-                'Nombre nuevo':   row.newName,
-                _status:          'OK',
-                _message:         ''
-              });
-              // Actualizar mapa por si el nuevo nombre se usa en filas posteriores
-              delete deptMap[row.oldName.toUpperCase()];
-              deptMap[row.newName.toUpperCase()] = deptId;
+              ok.push({'Nombre antiguo': row.oldName, 'Nombre nuevo': row.newName, _status: 'OK', _message: ''});
+              addLog(consoleEl, row.oldName + ' → ' + row.newName, 'ok');
+              // Actualizar mapa
+              delete deptMap[row.oldName];
+              deptMap[row.newName] = deptId;
             } catch(e) {
-              errors.push({
-                'Nombre antiguo': row.oldName,
-                'Nombre nuevo':   row.newName,
-                _status:          'ERROR',
-                _message:         e.message
-              });
+              errors.push({'Nombre antiguo': row.oldName, 'Nombre nuevo': row.newName, _status: 'ERROR', _message: e.message});
+              addLog(consoleEl, row.oldName + ' → ' + row.newName + ' · ' + e.message, 'err');
             }
           }
 
@@ -188,10 +208,12 @@
         setProgress(100, 'Completado');
         document.getElementById('kat-ren-progress').style.display = 'none';
 
+        var summary = 'Completado. &#10003; OK: <strong>' + ok.length + '</strong> · &#10007; Errores: <strong>' + errors.length + '</strong>';
         var type = errors.length === 0 ? 'ok' : (ok.length === 0 ? 'err' : 'info');
-        setStatus('Completado. &#10003; OK: <strong>' + ok.length + '</strong> · &#10007; Errores: <strong>' + errors.length + '</strong>', type);
+        setStatus(summary, type);
+        addLog(consoleEl, '─── ' + ok.length + ' OK · ' + errors.length + ' errores ───', 'info');
 
-        // Excel de resultados
+        // Excel resultados
         await loadXlsx();
         var ws2 = window.XLSX.utils.json_to_sheet(ok.concat(errors));
         ws2['!cols'] = [{wch:35},{wch:35},{wch:10},{wch:50}];
@@ -204,6 +226,7 @@
       } catch(e) {
         document.getElementById('kat-ren-progress').style.display = 'none';
         setStatus('&#10007; Error: ' + kat.escHtml(e.message), 'err');
+        addLog(consoleEl, 'Error fatal: ' + e.message, 'err');
         kat.showToast('Error: ' + e.message, 'err');
       }
 
@@ -213,13 +236,13 @@
   }
 
   KAT.registerModule({
-    key:         'bulk_departments',
-    label:       'Renombrar departamentos',
-    group:       'bulk',
-    icon:        '&#9998;',
-    order:       55,
-    version:     MOD_VERSION,
-    renderGui:   renderGui,
+    key:          'bulk_departments',
+    label:        'Renombrar departamentos',
+    group:        'bulk',
+    icon:         '&#9998;',
+    order:        55,
+    version:      MOD_VERSION,
+    renderGui:    renderGui,
     forceGuiOnly: true
   });
 
