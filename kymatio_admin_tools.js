@@ -18,7 +18,8 @@
     'kymatio_admin_tools_vishing_templates.js',
     'kymatio_admin_tools_admin_profile_audit.js',
     'kymatio_admin_tools_user_search.js',
-    'kymatio_admin_tools_bulk_departments.js'
+    'kymatio_admin_tools_bulk_departments.js',
+    'kymatio_admin_tools_session_analysis.js'
   ];
 
   var NAV_MAP = {
@@ -38,6 +39,7 @@
     admin_profile_audit:     'kym-nav-profile-audit',
     user_search:             'kym-nav-user-search',
     bulk_departments:        'kym-nav-bulk-departments',
+    session_analysis:        'kym-nav-session-analysis',
     tag_manager:             'kym-nav-tag-manager'
   };
 
