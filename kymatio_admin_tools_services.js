@@ -27,7 +27,9 @@
     { id: 20, label: 'MFA (Múltiple Factor de Autenticación)' },
     { id: 21, label: 'Vishing' },
     { id: 22, label: 'Neurovishing', disabled: true },
-    { id: 23, label: 'Formación (NIS...)' }
+    { id: 23, label: 'Formación (NIS...)' },
+    { id: 24, label: 'API_V3' },
+    { id: 25, label: 'SCORM' }
   ];
 
   function renderGui(container, tools) {
