@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-08-10-sidebar-v3';
+  var VERSION = '2026-10-30-sidebar-v4';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',
@@ -19,7 +19,8 @@
     'kymatio_admin_tools_admin_profile_audit.js',
     'kymatio_admin_tools_user_search.js',
     'kymatio_admin_tools_bulk_departments.js',
-    'kymatio_admin_tools_session_analysis.js'
+    'kymatio_admin_tools_session_analysis.js',
+    'kymatio_admin_tools_companies_export.js'
   ];
 
   var NAV_MAP = {
@@ -40,6 +41,7 @@
     user_search:             'kym-nav-user-search',
     bulk_departments:        'kym-nav-bulk-departments',
     session_analysis:        'kym-nav-session-analysis',
+    companies_export:        'kym-nav-companies-export',
     tag_manager:             'kym-nav-tag-manager'
   };
 
