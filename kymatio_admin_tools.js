@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-10-30-sidebar-v4';
+  var VERSION = '2026-11-23-sidebar-v5';
 
   var MODULE_FILES = [
     'kymatio_admin_tools_services.js',
@@ -20,7 +20,8 @@
     'kymatio_admin_tools_user_search.js',
     'kymatio_admin_tools_bulk_departments.js',
     'kymatio_admin_tools_session_analysis.js',
-    'kymatio_admin_tools_companies_export.js'
+    'kymatio_admin_tools_companies_export.js',
+    'kymatio_admin_tools_tag_manager.js'
   ];
 
   var NAV_MAP = {

@@ -4,9 +4,11 @@
   var KAT = window.KymatioAdminTools;
   if (!KAT) return;
 
-  // IDs de tags de empresa/departamento a ignorar (family != "3" o ids específicos)
-  var IGNORE_TAG_IDS = [9, 10]; // company-level tags
-  var IGNORE_FAMILY = ['2']; // departamento
+  var MOD_VERSION = 'tag-manager-v2';
+  // Solo tags de empleado (familia "3"). Familia "1" = empresa, "2" = departamento.
+  var EMPLOYEE_FAMILY = '3';
+  // Pausa entre peticiones de escritura para no cargar la plataforma
+  var DELAY_MS = 400;
 
   function renderGui(container, tools) {
     var esc = tools.escHtml;
@@ -14,6 +16,7 @@
     var axios = document.querySelector('#app').__vue_app__.config.globalProperties.$axios;
     var store = document.querySelector('#app').__vue_app__.config.globalProperties.$store.state;
     var cid = store.Admin && store.Admin.companySelected && store.Admin.companySelected.stakeholderId;
+    var cname = (store.Admin && store.Admin.companySelected && store.Admin.companySelected.name) || '';
 
     if (!cid) {
       container.innerHTML = '<div style="padding:14px;border:1px solid #fed7d7;border-radius:8px;background:#fff5f5;color:#c53030">No hay empresa seleccionada. Pulsa ↻ Actualizar empresa.</div>';
@@ -34,7 +37,7 @@
 
       // Filtrar solo tags de usuario
       state.tags = allTags.filter(function(t) {
-        return IGNORE_FAMILY.indexOf(t.family) < 0 && IGNORE_TAG_IDS.indexOf(t.id) < 0;
+        return String(t.family) === EMPLOYEE_FAMILY;
       });
       state.users = allUsers;
 
@@ -54,6 +57,10 @@
       }).join('');
 
       container.innerHTML = [
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+          '<span style="font-size:11px;color:#94a3b8">v: ' + esc(MOD_VERSION) + '</span>' +
+          '<span style="font-size:12px;color:#475569">Empresa: <strong>' + esc(cname) + '</strong> <span style="color:#94a3b8">(ID ' + esc(String(cid)) + ')</span></span>' +
+        '</div>',
         // Sección descarga
         '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:14px">',
         '  <div style="display:flex;justify-content:space-between;align-items:center">',
@@ -114,7 +121,8 @@
 
       // ── Estado de la UI ──────────────────────────────────────────────────────
       var opMode = 'add'; // 'add' | 'del'
-      var targetEmails = []; // emails subidos por el usuario
+      var targetIds = [];      // stakeholderId de los usuarios encontrados en el archivo
+      var fileLoaded = false;  // true en cuanto se sube un archivo, aunque no case ningún usuario
 
       function log(msg) {
         var el = document.getElementById('kym-tag-log');
@@ -133,7 +141,7 @@
         var valueEl = document.getElementById('kym-tag-value-new');
         var valueSelEl = document.getElementById('kym-tag-value-select');
         var value = (valueEl && valueEl.style.display !== 'none') ? valueEl.value.trim() : (valueSelEl ? valueSelEl.value : '');
-        var count = targetEmails.length || state.users.length;
+        var count = fileLoaded ? targetIds.length : state.users.length;
         var btn = document.getElementById('kym-tag-execute');
 
         if (!tagName || (opMode === 'add' && !value) || (opMode === 'del' && !value)) {
@@ -235,10 +243,12 @@
           return emails.indexOf((u.email||'').toLowerCase()) >= 0 ||
                  emails.indexOf((u.login||'').toLowerCase()) >= 0;
         });
-        targetEmails = matched.map(function(u){ return (u.email||'').toLowerCase(); });
+        fileLoaded = true;
+        targetIds = matched.map(function(u){ return u.stakeholderId; });
         var info = document.getElementById('kym-tag-file-info');
         info.style.display = 'block';
-        info.innerHTML = '&#10003; <strong>' + file.name + '</strong>: ' + emails.length + ' emails leídos &rarr; <strong>' + matched.length + '</strong> usuarios encontrados en esta empresa';
+        info.innerHTML = '&#10003; <strong>' + esc(file.name) + '</strong>: ' + emails.length + ' emails leídos &rarr; <strong>' + matched.length + '</strong> usuarios encontrados en esta empresa';
+        if (!matched.length) info.innerHTML = '&#9888; <strong>' + esc(file.name) + '</strong>: ' + emails.length + ' emails leídos, pero ninguno coincide con un usuario de esta empresa. No se modificará a nadie.';
         updateConfirmBox();
       }
 
@@ -301,23 +311,14 @@
         btn.textContent = '⌛ Generando...';
         btn.disabled = true;
         try {
-          // Cargar tags de todos los usuarios en lotes de 10
-          var users = state.users;
-          var allUserTags = [];
-          for (var i = 0; i < users.length; i += 10) {
-            var batch = users.slice(i, i + 10);
-            var results = await Promise.all(batch.map(function(u) {
-              return axios.get('admin/stakeholders/people/' + u.stakeholderId, { params: { tags: true, email: true } })
-                .then(function(r) { return { user: u, tags: r.data.records && r.data.records.tags || {} }; })
-                .catch(function() { return { user: u, tags: {} }; });
-            }));
-            allUserTags = allUserTags.concat(results);
-          }
+          // Una sola llamada: el listado de empleados ya trae los tags de todos (y siempre actualizados)
+          var rl = await axios.get('admin/stakeholders/companies/' + cid + '/people', { params: { email: true, login: true, tags: true } });
+          var allUserTags = (rl.data.records || []).map(function(u) { return { user: u, tags: u.tags || {} }; });
           downloadTagsExcel(allUserTags);
-          btn.textContent = '&#10003; Descargado';
-          setTimeout(function(){ btn.textContent = '&#11015; Descargar Excel'; btn.disabled = false; }, 2000);
+          btn.innerHTML = '&#10003; Descargado';
+          setTimeout(function(){ btn.innerHTML = '&#11015; Descargar Excel'; btn.disabled = false; }, 2000);
         } catch(e) {
-          btn.textContent = '&#11015; Descargar Excel';
+          btn.innerHTML = '&#11015; Descargar Excel';
           btn.disabled = false;
           alert('Error: ' + e.message);
         }
@@ -379,13 +380,18 @@
 
         if (!tagId || !value || value === '__new__') return;
 
-        var usersCount = (targetEmails.length > 0
-          ? state.users.filter(function(u){ return targetEmails.indexOf((u.email||'').toLowerCase()) >= 0; })
-          : state.users).length;
+        var usersCount = fileLoaded ? targetIds.length : state.users.length;
+        if (fileLoaded && usersCount === 0) {
+          alert('El archivo subido no contiene ningún usuario de esta empresa. No se ha modificado nada.');
+          return;
+        }
 
         // Modal de confirmación
         var action = opMode === 'add' ? '<strong>añadir</strong>' : '<strong>eliminar</strong>';
-        var msg = 'Se va a ' + action + ' el TAG <strong>' + esc(tagObj ? tagObj.name : tagId) + '</strong> con valor <strong>' + esc(value) + '</strong> para <strong>' + usersCount + '</strong> usuarios. ¿Quieres proceder?';
+        var destino = fileLoaded
+          ? '<strong>' + usersCount + '</strong> usuarios del archivo'
+          : '<strong>TODOS los usuarios (' + usersCount + ')</strong>, porque no has subido ningún archivo';
+        var msg = 'En <strong>' + esc(cname) + '</strong> se va a ' + action + ' el TAG <strong>' + esc(tagObj ? tagObj.name : tagId) + '</strong> con valor <strong>' + esc(value) + '</strong> para ' + destino + '. ¿Quieres proceder?';
 
         var overlay = document.createElement('div');
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2147483647;display:flex;align-items:center;justify-content:center';
@@ -408,8 +414,8 @@
       };
 
       async function doExecute(tagId, tagObj, value) {
-        var usersToProcess = targetEmails.length > 0
-          ? state.users.filter(function(u){ return targetEmails.indexOf((u.email||'').toLowerCase()) >= 0; })
+        var usersToProcess = fileLoaded
+          ? state.users.filter(function(u){ return targetIds.indexOf(u.stakeholderId) >= 0; })
           : state.users;
 
         var statusEl = document.getElementById('kym-tag-status');
@@ -423,8 +429,8 @@
 
         setStatus(statusEl, '&#8987; Procesando 0 / ' + total + ' usuarios...', 'info');
 
-        for (var i = 0; i < usersToProcess.length; i += 5) {
-          var batch = usersToProcess.slice(i, i + 5);
+        for (var i = 0; i < usersToProcess.length; i++) {
+          var batch = usersToProcess.slice(i, i + 1);
           await Promise.all(batch.map(async function(user) {
             try {
               // 1. Obtener datos completos del usuario
@@ -480,7 +486,8 @@
               log('✗ ' + (user.email || user.stakeholderId) + ': ' + e.message);
             }
           }));
-          setStatus(statusEl, '&#8987; Procesando ' + Math.min(i + 5, total) + ' / ' + total + ' usuarios...', 'info');
+          setStatus(statusEl, '&#8987; Procesando ' + Math.min(i + 1, total) + ' / ' + total + ' usuarios...', 'info');
+          await new Promise(function(r){ setTimeout(r, DELAY_MS); });
         }
 
         setStatus(statusEl, '&#10003; Completado: ' + ok + ' OK · ' + err + ' errores', ok > 0 ? 'ok' : 'err');
@@ -529,8 +536,9 @@
     icon: '&#127991;',
     group: 'bulk',
     order: 95,
+    version: MOD_VERSION,
     renderGui: renderGui,
-    getJson: function() { return {}; }
+    forceGuiOnly: true
   });
 
 })();
