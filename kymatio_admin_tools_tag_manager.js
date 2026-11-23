@@ -4,11 +4,16 @@
   var KAT = window.KymatioAdminTools;
   if (!KAT) return;
 
-  var MOD_VERSION = 'tag-manager-v2';
+  var MOD_VERSION = 'tag-manager-v3';
   // Solo tags de empleado (familia "3"). Familia "1" = empresa, "2" = departamento.
   var EMPLOYEE_FAMILY = '3';
-  // Pausa entre peticiones de escritura para no cargar la plataforma
-  var DELAY_MS = 400;
+  // Pausa entre usuarios (editable en el panel). El valor por defecto es el que ya se validó en departamentos.
+  var DEFAULT_PAUSE_MS = 400, MIN_PAUSE_MS = 100, MAX_PAUSE_MS = 3000;
+  // Cada cuántos usuarios se vuelve a leer la lista, para escribir siempre con datos recientes
+  var REFRESH_EVERY = 200;
+  // Datos que se leen de cada usuario y se reenvían completos en el PUT
+  var SNAP_PARAMS = { tags: true, email: true, login: true, stakeholderDepartmentId: true,
+                      profiles: true, environment: true, isBoss: true, authentication: true, phoneNumber: true };
 
   function renderGui(container, tools) {
     var esc = tools.escHtml;
@@ -113,6 +118,12 @@
         '  </div>',
         '</div>',
 
+        // Velocidad
+        '<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:#475569">' +
+          '<label for="kym-tag-pause" style="white-space:nowrap">Pausa entre usuarios (ms)</label>' +
+          '<input id="kym-tag-pause" type="number" min="' + MIN_PAUSE_MS + '" max="' + MAX_PAUSE_MS + '" step="50" value="' + DEFAULT_PAUSE_MS + '" style="width:80px;padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px">' +
+          '<span style="color:#94a3b8">Más baja = más rápido y más carga. Si hay errores, se frena sola.</span>' +
+        '</div>',
         // Confirmación y botón
         '<div id="kym-tag-status" style="display:none;margin-bottom:10px"></div>',
         '<button id="kym-tag-execute" style="width:100%;background:#1e293b;color:white;border:none;padding:10px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;display:none">MODIFICAR TAGS</button>',
@@ -427,19 +438,46 @@
         var total = usersToProcess.length;
         var isMulti = tagObj && tagObj.attributes && tagObj.attributes.multivalue;
 
+        var basePause = parseInt((document.getElementById('kym-tag-pause') || {}).value, 10);
+        if (isNaN(basePause)) basePause = DEFAULT_PAUSE_MS;
+        basePause = Math.min(MAX_PAUSE_MS, Math.max(MIN_PAUSE_MS, basePause));
+        var curPause = basePause;
+        var tStart = Date.now();
+
+        // Una sola lectura de todos los usuarios, en vez de un GET por usuario
+        async function fetchSnapshot() {
+          var rl = await axios.get('admin/stakeholders/companies/' + cid + '/people', { params: SNAP_PARAMS });
+          var m = {};
+          (rl.data.records || []).forEach(function(x) { m[x.stakeholderId] = x; });
+          return m;
+        }
+        var snap;
+        try { snap = await fetchSnapshot(); }
+        catch (e) {
+          setStatus(statusEl, '&#10007; No se pudo leer la lista de usuarios: ' + esc(e.message) + '. No se ha modificado nada.', 'err');
+          return;
+        }
+        var sinceRefresh = 0;
+
         setStatus(statusEl, '&#8987; Procesando 0 / ' + total + ' usuarios...', 'info');
 
         for (var i = 0; i < usersToProcess.length; i++) {
+          if (sinceRefresh >= REFRESH_EVERY) {
+            try { snap = await fetchSnapshot(); log('↻ Lista de usuarios refrescada'); }
+            catch (e) { log('⚠ No se pudo refrescar la lista; se sigue con la anterior'); }
+            sinceRefresh = 0;
+          }
+          sinceRefresh++;
+          var errBefore = err;
           var batch = usersToProcess.slice(i, i + 1);
           await Promise.all(batch.map(async function(user) {
             try {
-              // 1. Obtener datos completos del usuario
-              var r = await axios.get('admin/stakeholders/people/' + user.stakeholderId, {
-                params: { tags: true, email: true, login: true, stakeholderDepartmentId: true,
-                          profiles: true, environment: true, isBoss: true, authentication: true,
-                          phoneNumber: true }
-              });
-              var u = r.data.records;
+              // 1. Datos completos del usuario: de la lectura masiva (si faltara, se pide solo ese usuario)
+              var u = snap[user.stakeholderId];
+              if (!u) {
+                var r = await axios.get('admin/stakeholders/people/' + user.stakeholderId, { params: SNAP_PARAMS });
+                u = r.data.records;
+              }
               var currentTags = u.tags || {};
 
               // 2. Modificar tags
@@ -486,8 +524,15 @@
               log('✗ ' + (user.email || user.stakeholderId) + ': ' + e.message);
             }
           }));
-          setStatus(statusEl, '&#8987; Procesando ' + Math.min(i + 1, total) + ' / ' + total + ' usuarios...', 'info');
-          await new Promise(function(r){ setTimeout(r, DELAY_MS); });
+          // Si hay errores, frena sola; con éxitos vuelve poco a poco a la pausa elegida
+          curPause = err > errBefore
+            ? Math.min(MAX_PAUSE_MS, Math.max(curPause * 2, 500))
+            : Math.max(basePause, Math.round(curPause * 0.8));
+          var hechos = i + 1;
+          var quedan = Math.round(((Date.now() - tStart) / hechos) * (total - hechos) / 1000);
+          var eta = hechos >= total ? '' : ' · quedan ≈ ' + (quedan < 90 ? quedan + ' s' : Math.round(quedan / 60) + ' min');
+          setStatus(statusEl, '&#8987; Procesando ' + hechos + ' / ' + total + ' usuarios' + eta + (curPause > basePause ? ' · frenando (' + curPause + ' ms)' : '') + '...', 'info');
+          if (hechos < total) await new Promise(function(r){ setTimeout(r, curPause); });
         }
 
         setStatus(statusEl, '&#10003; Completado: ' + ok + ' OK · ' + err + ' errores', ok > 0 ? 'ok' : 'err');
