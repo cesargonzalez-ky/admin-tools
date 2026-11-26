@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'session-loader-v1';
+  var MOD_VERSION = 'session-loader-v2';
 
   if (!window.KymatioAdminTools) { console.error('KAT no cargado'); return; }
   var KAT = window.KymatioAdminTools;
@@ -293,6 +293,32 @@
     };
   }
 
+  // Recorre el listado buscando por surveyId (no se asume que coincida con el id de la sesión)
+  async function findBySurveyId(n) {
+    var found = [];
+    for (var page = 1; page <= 10; page++) {
+      var recs = await api('GET', API_SESSIONS + '?page=' + page + '&limit=100');
+      recs = Array.isArray(recs) ? recs : [];
+      recs.forEach(function (s) { if (String(s.surveyId) === String(n)) found.push(s); });
+      if (recs.length < 100) break;
+      await sleep(PAUSE_MS);
+    }
+    return found;
+  }
+
+  // 1º por código único; si no aparece y lo escrito es un número, 2º como surveyId; si no, no encontrada
+  async function resolveSession(entrada, log) {
+    var porCodigo = await findSession(entrada);
+    if (porCodigo.exact.length) return { via: 'codigo', exact: porCodigo.exact, similar: porCodigo.similar };
+    if (/^\d+$/.test(entrada)) {
+      if (log) log('No hay ningún código único "' + entrada + '"; lo pruebo como surveyId…');
+      await sleep(PAUSE_MS);
+      var porSurvey = await findBySurveyId(entrada);
+      if (porSurvey.length) return { via: 'surveyId', exact: porSurvey, similar: [] };
+    }
+    return { via: null, exact: [], similar: porCodigo.similar };
+  }
+
   // ── Interfaz ─────────────────────────────────────────────────────────────────
 
   function renderGui(container, kat) {
@@ -387,7 +413,8 @@
     function syncMode() {
       var m = mode();
       $('kym-sl-createopts').style.display = m === 'create' ? 'block' : 'none';
-      $('kym-sl-code-label').textContent = m === 'create' ? 'Código único de la sesión nueva' : 'Código de la sesión que se va a modificar';
+      $('kym-sl-code-label').textContent = m === 'create' ? 'Código único de la sesión nueva' : 'Código único o surveyId de la sesión que se va a modificar';
+      $('kym-sl-code').placeholder = m === 'create' ? 'p. ej. KYMATIO_CYBERSECURITY_N003' : 'Código único (o, si no lo tienes, el surveyId)';
       $('kym-sl-run').innerHTML = m === 'create' ? '&#9654; Crear sesión' : '&#9654; Modificar sesión';
     }
     $('kym-sl-mode-create').onchange = syncMode;
@@ -447,7 +474,7 @@
         if (!parsed) { setStatus('&#10007; Sube primero el Excel.', 'err'); return; }
         if (parsed.errors.length) { setStatus('&#10007; El Excel tiene errores; corrígelos y vuelve a subirlo.', 'err'); return; }
         var code = $('kym-sl-code').value.trim();
-        if (!code) { setStatus('&#10007; Indica el código de la sesión.', 'err'); return; }
+        if (!code) { setStatus('&#10007; ' + (mode() === 'create' ? 'Indica el código de la sesión.' : 'Indica el código único o el surveyId de la sesión.'), 'err'); return; }
         btn.disabled = true;
 
         if (mode() === 'create') await crear(code); else await modificar(code);
@@ -517,12 +544,14 @@
       kat.showToast('Sesión creada: ' + code, 'ok');
     }
 
-    async function modificar(code) {
-      setStatus('Buscando la sesión…', 'info'); addLog('Buscando "' + code + '"…');
-      var f = await findSession(code);
-      if (!f.exact.length) throw new Error('No existe ninguna sesión con el código ' + code + (f.similar.length ? ' (¿quisiste decir ' + f.similar[0].name + '?)' : '') + '.');
-      if (f.exact.length > 1) throw new Error('Hay ' + f.exact.length + ' sesiones con el código ' + code + '; no sé cuál modificar.');
-      var id = f.exact[0].id;
+    async function modificar(entrada) {
+      var esNumero = /^\d+$/.test(entrada);
+      setStatus('Buscando la sesión…', 'info'); addLog('Buscando por código único "' + entrada + '"…');
+      var f = await resolveSession(entrada, function (m) { addLog(m); });
+      if (!f.exact.length) throw new Error('No existe ninguna sesión con el código único ' + entrada + (esNumero ? ' ni con el surveyId ' + entrada : '') + (f.similar.length ? ' (¿quisiste decir ' + f.similar[0].name + '?)' : '') + '.');
+      if (f.exact.length > 1) throw new Error('Hay ' + f.exact.length + ' sesiones con el ' + (f.via === 'surveyId' ? 'surveyId ' : 'código único ') + entrada + '; no sé cuál modificar.');
+      var id = f.exact[0].id, code = f.exact[0].name;
+      addLog(f.via === 'surveyId' ? 'Encontrada por surveyId ' + entrada + ' → código ' + code + ' (id ' + id + ')' : 'Encontrada por código único (id ' + id + ')', 'ok');
       await sleep(PAUSE_MS);
       var rec = await api('GET', API_SESSIONS + '/' + id);
       if (rec.isPublished || rec.isDraft === false) throw new Error('La sesión ' + code + ' está publicada (o no es un borrador). Solo se modifican borradores.');
@@ -555,7 +584,8 @@
 
       var ok = await confirmModal(
         '<p>Se va a <strong>modificar</strong> la sesión (en borrador):</p>' +
-        '<p style="background:#f1f5f9;border-radius:8px;padding:10px 12px"><strong>' + esc(rec.name) + '</strong> · ' + esc(rec.label || '') + ' <span style="color:#64748b">(id ' + esc(String(id)) + ', empresa ' + esc(String(rec.companyId)) + ')</span></p>' +
+        '<p style="background:#f1f5f9;border-radius:8px;padding:10px 12px"><strong>' + esc(rec.name) + '</strong> · ' + esc(rec.label || '') + ' <span style="color:#64748b">(id ' + esc(String(id)) + ', surveyId ' + esc(String(rec.surveyId)) + ', empresa ' + esc(String(rec.companyId)) + ')</span></p>' +
+        (f.via === 'surveyId' ? '<p style="margin:0 0 6px;color:#92400e;font-size:12.5px">Localizada por <strong>surveyId ' + esc(entrada) + '</strong>: no había ningún código único con ese valor. Comprueba que es la sesión que buscas.</p>' : '') +
         '<ul style="margin:0 0 6px 18px;padding:0"><li>Temáticas que cambian: <strong>' + cambian.length + ' de 7</strong> (' + esc(cambian.join(', ')) + ')</li>' +
         '<li>Idiomas que se cargan: ' + esc(langs.join(', ')) + ' · traducción ' + (auto ? 'automática' : 'manual') + '</li></ul>' +
         (avisos.length ? '<p style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;color:#92400e;font-size:12.5px">' + avisos.join('<br>') + '</p>' : '') +
