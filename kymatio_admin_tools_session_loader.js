@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'session-loader-v2';
+  var MOD_VERSION = 'session-loader-v3';
 
   if (!window.KymatioAdminTools) { console.error('KAT no cargado'); return; }
   var KAT = window.KymatioAdminTools;
@@ -293,6 +293,103 @@
     };
   }
 
+  function normTipo(t) { t = String(t || '').toLowerCase(); return t.indexOf('youtube') === 0 ? 'youtube' : t; }   // youtube_iframe ≡ youtube
+
+  // Solo lo que aporta el Excel (textos, respuestas, assets) y solo en los idiomas que se cargan: sirve para
+  // saber si algo cambia y para verificar, sin depender de ids ni de campos que añade el servidor.
+  function contenido(t, langs) {
+    if (!t || !t.action) return null;
+    function d(x) { var o = {}; langs.forEach(function (l) { var e = x && x.dictionary && x.dictionary[l]; o[l] = e ? e.default : null; }); return o; }
+    var c = (t.question && t.question.content) || {};
+    return {
+      a: { t: d(t.action.title), d: d(t.action.description) },
+      q: { t: d(c.title), k: t.question && t.question.correctChoiceValue,
+           c: (c.choices || []).map(function (x) { return { v: x.value, t: d(x.text), e: d(x.explanation) }; }) },
+      s: (t.assets || []).map(function (a) {
+        var o = { tipo: '' };
+        langs.forEach(function (l) {
+          var x = a.assetContent && a.assetContent[l] && a.assetContent[l].default;
+          o[l] = x ? { link: x.link, url: x.url } : null;
+          if (x && !o.tipo) o.tipo = normTipo(x.type);
+        });
+        return o;
+      })
+    };
+  }
+
+  function mezclaDic(ex, nu) {   // conserva los idiomas que ya había y pisa solo los que carga el Excel
+    var dic = Object.assign({}, (ex && ex.dictionary) || {}, (nu && nu.dictionary) || {});
+    return Object.assign({}, ex || {}, nu || {}, { dictionary: dic });
+  }
+
+  // Para sesiones ya publicadas: parte de lo que hay en el servidor (ids, códigos, otros idiomas) y pisa solo el contenido.
+  function conIdentidad(nuevo, ex, original) {
+    if (!ex || !ex.action) return nuevo;
+    var exQ = ex.question || {}, exC = exQ.content || {};
+    var action = Object.assign({}, ex.action, {
+      title: mezclaDic(ex.action.title, nuevo.action.title),
+      description: mezclaDic(ex.action.description, nuevo.action.description),
+      autoTranslate: nuevo.action.autoTranslate
+    });
+    var choices = nuevo.question.content.choices.map(function (c, i) {
+      var e = (exC.choices || [])[i] || {};
+      return Object.assign({}, e, { value: c.value, text: mezclaDic(e.text, c.text), explanation: mezclaDic(e.explanation, c.explanation) });
+    });
+    var question = Object.assign({}, exQ, {
+      content: Object.assign({}, exC, { title: mezclaDic(exC.title, nuevo.question.content.title), choices: choices }),
+      correctChoiceValue: nuevo.question.correctChoiceValue,
+      autoTranslate: nuevo.question.autoTranslate
+    });
+    function tipoDe(a) {
+      var c = a && a.assetContent; if (!c) return '';
+      var l = c[original] || c[Object.keys(c)[0]];
+      return normTipo(l && l.default && l.default.type);
+    }
+    var usados = {};
+    var assets = nuevo.assets.map(function (a) {
+      var tipo = normTipo(a.assetContent[original].default.type), idx = -1;
+      (ex.assets || []).forEach(function (e, i) { if (idx < 0 && !usados[i] && tipoDe(e) === tipo) idx = i; });
+      if (idx < 0) return a;                                   // asset nuevo: id null
+      usados[idx] = true;
+      var e = ex.assets[idx], cont = Object.assign({}, e.assetContent || {});
+      Object.keys(a.assetContent).forEach(function (l) {
+        var exL = (e.assetContent && e.assetContent[l]) || {}, exD = exL.default || {};
+        var d = Object.assign({}, exD, a.assetContent[l].default);
+        if (exD.type) d.type = exD.type;                       // conserva youtube_iframe, etc.
+        if (exD.source) d.source = exD.source;
+        cont[l] = Object.assign({}, exL, a.assetContent[l], { default: d });
+      });
+      return Object.assign({}, e, { assetContent: cont, isAutomatic: a.isAutomatic });
+    });
+    return { topicCode: nuevo.topicCode, action: action, question: question, assets: assets };
+  }
+
+  function descargarCopia(rec, code) {
+    try {
+      var blob = new Blob([JSON.stringify(rec, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      var nombre = 'copia_sesion_' + String(code || rec.id).replace(/[^A-Za-z0-9_-]/g, '_') + '_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+      a.href = url; a.download = nombre;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+      return nombre;
+    } catch (e) { return null; }
+  }
+
+  function tipoTexto(rec) {
+    var t = rec.surveyType;
+    var nombre = t && typeof t === 'object' ? (t.name || t.label || t.code || '') : (t || '');
+    var id = rec.surveyTypeId != null ? rec.surveyTypeId : (t && typeof t === 'object' ? (t.surveyTypeId || t.id) : null);
+    if (!nombre && id == null) return 'sin tipo asignado';
+    return (nombre ? String(nombre) : '') + (id != null ? (nombre ? ' ' : '') + '(id ' + id + ')' : '');
+  }
+
+  async function nombreEmpresa(id) {
+    try { var c = await api('GET', 'https://api.kymatio.com/v2/admin/stakeholders/companies/' + id); return (c && c.name) || ''; }
+    catch (e) { return ''; }
+  }
+
   // Recorre el listado buscando por surveyId (no se asume que coincida con el id de la sesión)
   async function findBySurveyId(n) {
     var found = [];
@@ -339,7 +436,7 @@
       '</div>' +
       '<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:12px;margin-bottom:12px;font-size:12.5px;color:#0369a1;line-height:1.6">' +
         'Carga el contenido de una sesión de concienciación (7 temáticas) desde un Excel con las hojas <strong>Questions</strong>, <strong>Actions</strong> y <strong>Assets</strong>. ' +
-        'Las sesiones se quedan siempre en <strong>borrador: nunca se publican</strong>.' +
+        '<strong>Nunca publica ni activa</strong> una sesión: al modificar respeta el estado en que esté (borrador o activa).' +
       '</div>' +
       '<div style="display:flex;gap:16px;margin-bottom:10px;font-size:13px">' +
         '<label style="cursor:pointer"><input type="radio" name="kym-sl-mode" id="kym-sl-mode-create" checked> Crear sesión nueva</label>' +
@@ -378,7 +475,7 @@
       el.appendChild(l); el.scrollTop = el.scrollHeight;
     }
 
-    function confirmModal(html, okText) {
+    function confirmModal(html, okText, peligro) {
       return new Promise(function (resolve) {
         var ov = document.createElement('div');
         ov.id = 'kym-sl-modal';
@@ -387,7 +484,7 @@
           '<div style="font-weight:800;font-size:15px;margin-bottom:10px">Confirmar</div>' + html +
           '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">' +
           '<button id="kym-sl-modal-cancel" style="background:#f1f5f9;border:none;border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:600">Cancelar</button>' +
-          '<button id="kym-sl-modal-ok" style="background:#1e293b;color:white;border:none;border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:700">' + esc(okText) + '</button></div></div>';
+          '<button id="kym-sl-modal-ok" style="background:' + (peligro ? '#b91c1c' : '#1e293b') + ';color:white;border:none;border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:700">' + esc(okText) + '</button></div></div>';
         document.body.appendChild(ov);
         function cerrar(v) { ov.remove(); resolve(v); }
         ov.querySelector('#kym-sl-modal-cancel').onclick = function () { cerrar(false); };
@@ -483,12 +580,12 @@
       } finally { btn.disabled = false; }
     };
 
-    function verificar(rec, esperadas, codigos) {
+    function verificar(rec, esperadas, codigos, langs) {
       var dif = [];
       codigos.forEach(function (code) {
         var srv = (rec.themes || []).filter(function (t) { return t.topicCode === code; })[0];
         var exp = esperadas.filter(function (t) { return t.topicCode === code; })[0];
-        if (stable(toUiTheme(srv)) !== stable(exp)) dif.push(code);
+        if (stable(contenido(srv, langs)) !== stable(contenido(exp, langs))) dif.push(code);
       });
       return dif;
     }
@@ -536,7 +633,7 @@
 
       await sleep(PAUSE_MS);
       var leido = await api('GET', API_SESSIONS + '/' + rec.id);
-      var dif = verificar(leido, themes, TOPICS.map(function (t) { return t.code; }));
+      var dif = verificar(leido, themes, TOPICS.map(function (t) { return t.code; }), langs);
       if (dif.length) addLog('El servidor normalizó o difiere en: ' + dif.join(', ') + ' (revisa la sesión en pantalla)', 'warn');
       else addLog('Verificado: lo leído de vuelta coincide con lo enviado', 'ok');
       addLog('Estado: borrador=' + leido.isDraft + ', publicada=' + leido.isPublished + ', completa=' + leido.completed, 'info');
@@ -550,12 +647,16 @@
       var f = await resolveSession(entrada, function (m) { addLog(m); });
       if (!f.exact.length) throw new Error('No existe ninguna sesión con el código único ' + entrada + (esNumero ? ' ni con el surveyId ' + entrada : '') + (f.similar.length ? ' (¿quisiste decir ' + f.similar[0].name + '?)' : '') + '.');
       if (f.exact.length > 1) throw new Error('Hay ' + f.exact.length + ' sesiones con el ' + (f.via === 'surveyId' ? 'surveyId ' : 'código único ') + entrada + '; no sé cuál modificar.');
-      var id = f.exact[0].id, code = f.exact[0].name;
-      addLog(f.via === 'surveyId' ? 'Encontrada por surveyId ' + entrada + ' → código ' + code + ' (id ' + id + ')' : 'Encontrada por código único (id ' + id + ')', 'ok');
+      var id = f.exact[0].id;
+      addLog(f.via === 'surveyId' ? 'Encontrada por surveyId ' + entrada + ' → código ' + (f.exact[0].name || '(sin código)') + ' (id ' + id + ')' : 'Encontrada por código único (id ' + id + ')', 'ok');
       await sleep(PAUSE_MS);
       var rec = await api('GET', API_SESSIONS + '/' + id);
-      if (rec.isPublished || rec.isDraft === false) throw new Error('La sesión ' + code + ' está publicada (o no es un borrador). Solo se modifican borradores.');
-      if (rec.usage && rec.usage.structureLocked) throw new Error('La estructura de la sesión ' + code + ' está bloqueada.');
+      var code = rec.name || '';
+      var esBorrador = rec.isDraft === true && !rec.isPublished;
+      var estado = esBorrador ? 'BORRADOR' : (rec.isActive ? 'ACTIVA' : 'INACTIVA');
+      addLog('Estado de la sesión: ' + estado + ' (isDraft=' + rec.isDraft + ', isPublished=' + rec.isPublished + ', isActive=' + rec.isActive + ')', 'info');
+      await sleep(PAUSE_MS);
+      var empresa = await nombreEmpresa(rec.companyId);
 
       var original = rec.originalLanguage, auto = !!rec.translationTypeIsAutomatic;
       if (parsed.langs.indexOf(original) < 0) throw new Error('El idioma original de la sesión (' + original + ') no está en el Excel.');
@@ -563,49 +664,84 @@
       var bloqueos = errorsOf(langs);
       if (bloqueos.length) throw new Error('El Excel está incompleto para ' + langs.join(', ') + ': ' + bloqueos.slice(0, 3).join(' · ') + (bloqueos.length > 3 ? ' …(+' + (bloqueos.length - 3) + ')' : ''));
 
+      var exRaw = {};
+      (rec.themes || []).forEach(function (t) { exRaw[t.topicCode] = t; });
       var avisos = [];
+      if (rec.usage && rec.usage.structureLocked) avisos.push('La <strong>estructura de la sesión está bloqueada</strong>: el servidor puede rechazar cambios que alteren la estructura. Si lo hace, no se modifica nada.');
       if (auto && parsed.langs.length > 1) avisos.push('La sesión está en <strong>traducción automática</strong>: solo se carga ' + esc(original) + '; se ignoran ' + esc(parsed.langs.filter(function (l) { return l !== original; }).join(', ')) + ' del Excel.');
-      if (!auto) {
+      var conservados = {};
+      TOPICS.forEach(function (tp) {
+        var ex = exRaw[tp.code]; if (!ex || !ex.action) return;
+        [ex.action.title, ex.action.description, ex.question && ex.question.content && ex.question.content.title].forEach(function (x) {
+          Object.keys((x && x.dictionary) || {}).forEach(function (l) { if (langs.indexOf(l) < 0) conservados[l] = true; });
+        });
+      });
+      if (!esBorrador && Object.keys(conservados).length) avisos.push('Se <strong>conservan</strong> las traducciones que la sesión ya tiene en ' + esc(Object.keys(conservados).join(', ')) + ' (el Excel no las carga y pueden quedar desfasadas respecto al texto nuevo).');
+      if (esBorrador && !auto) {
         var extra = Object.keys(rec.nameTranslations || {}).filter(function (l) { return parsed.langs.indexOf(l) < 0; });
         if (extra.length) avisos.push('La sesión tiene traducciones en ' + esc(extra.join(', ')) + ' que el Excel no trae: se perderían en las temáticas que se carguen.');
       }
 
-      var actuales = (rec.themes || []).map(toUiTheme);
       var nuevas = TOPICS.map(function (tp) {
-        var ex = actuales.filter(function (t) { return t.topicCode === tp.code; })[0];
-        return parsed.themes[tp.code] ? buildTheme(tp.code, parsed.themes[tp.code], langs, original, auto) : (ex || { topicCode: tp.code, action: null });
+        var ex = exRaw[tp.code];
+        if (!parsed.themes[tp.code]) return ex ? toUiTheme(ex) : { topicCode: tp.code, action: null };
+        var b = buildTheme(tp.code, parsed.themes[tp.code], langs, original, auto);
+        return esBorrador ? b : conIdentidad(b, ex, original);
       });
       var cambian = nuevas.filter(function (t) {
-        var ex = actuales.filter(function (x) { return x.topicCode === t.topicCode; })[0];
-        return stable(t) !== stable(ex || { topicCode: t.topicCode, action: null });
+        return stable(contenido(t, langs)) !== stable(contenido(exRaw[t.topicCode], langs));
       }).map(function (t) { return t.topicCode; });
 
       if (!cambian.length) { setStatus('Sin cambios: el contenido de la sesión ya coincide con el Excel. No se ha enviado nada.', 'ok'); addLog('Sin cambios; no se envía nada', 'ok'); return; }
 
+      if (!esBorrador) {
+        var quitan = 0;
+        nuevas.forEach(function (t) {
+          var ex = exRaw[t.topicCode]; if (!ex || !ex.assets) return;
+          quitan += ex.assets.filter(function (e) { return e.id != null && !(t.assets || []).some(function (a) { return a.id === e.id; }); }).length;
+        });
+        if (quitan) avisos.push('Se <strong>quitarán ' + quitan + ' asset(s)</strong> que la sesión ya tenía y que no están en el Excel.');
+      }
+
+      var nombreTxt = rec.label ? rec.label + (code ? ' (' + code + ')' : '') : (code || '—');
       var ok = await confirmModal(
-        '<p>Se va a <strong>modificar</strong> la sesión (en borrador):</p>' +
-        '<p style="background:#f1f5f9;border-radius:8px;padding:10px 12px"><strong>' + esc(rec.name) + '</strong> · ' + esc(rec.label || '') + ' <span style="color:#64748b">(id ' + esc(String(id)) + ', surveyId ' + esc(String(rec.surveyId)) + ', empresa ' + esc(String(rec.companyId)) + ')</span></p>' +
-        (f.via === 'surveyId' ? '<p style="margin:0 0 6px;color:#92400e;font-size:12.5px">Localizada por <strong>surveyId ' + esc(entrada) + '</strong>: no había ningún código único con ese valor. Comprueba que es la sesión que buscas.</p>' : '') +
-        '<ul style="margin:0 0 6px 18px;padding:0"><li>Temáticas que cambian: <strong>' + cambian.length + ' de 7</strong> (' + esc(cambian.join(', ')) + ')</li>' +
-        '<li>Idiomas que se cargan: ' + esc(langs.join(', ')) + ' · traducción ' + (auto ? 'automática' : 'manual') + '</li></ul>' +
-        (avisos.length ? '<p style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;color:#92400e;font-size:12.5px">' + avisos.join('<br>') + '</p>' : '') +
-        '<p style="margin:6px 0 0;color:#64748b;font-size:12.5px">El contenido de cada temática del Excel <strong>sustituye por completo</strong> al anterior. La empresa no cambia y no se publica.</p>', 'Modificar sesión');
+        '<div style="border-radius:8px;padding:10px 12px;margin-bottom:10px;' + (esBorrador ? 'background:#f1f5f9;color:#1e293b' : 'background:#fef2f2;border:1px solid #fecaca;color:#991b1b') + '"><strong>Se va a proceder a modificar una sesión ' + estado + '.</strong></div>' +
+        '<ul style="list-style:none;margin:0 0 10px;padding:0">' +
+          '<li>La sesión es del tipo → <strong>' + esc(tipoTexto(rec)) + '</strong></li>' +
+          '<li>El nombre es → <strong>' + esc(nombreTxt) + '</strong></li>' +
+          '<li>La company es → <strong>' + esc(empresa || ('ID ' + rec.companyId)) + '</strong>' + (empresa ? ' <span style="color:#64748b">(ID ' + esc(String(rec.companyId)) + ')</span>' : '') + '</li>' +
+        '</ul>' +
+        '<div style="border-top:1px solid #e2e8f0;padding-top:8px;font-size:12.5px;color:#475569">' +
+          '<div>id ' + esc(String(id)) + ' · surveyId ' + esc(String(rec.surveyId)) + '</div>' +
+          (f.via === 'surveyId' ? '<div style="color:#92400e">Localizada por <strong>surveyId ' + esc(entrada) + '</strong>: no había ningún código único con ese valor. Comprueba que es la sesión que buscas.</div>' : '') +
+          '<div>Temáticas que cambian: <strong>' + cambian.length + ' de 7</strong> (' + esc(cambian.join(', ')) + ') · idiomas que se cargan: ' + esc(langs.join(', ')) + ' · traducción ' + (auto ? 'automática' : 'manual') + '</div>' +
+          (avisos.length ? '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-top:6px;color:#92400e">' + avisos.join('<br>') + '</div>' : '') +
+          '<div style="margin-top:6px">El contenido de cada temática del Excel <strong>sustituye</strong> al anterior. No se publica ni se activa nada' + (esBorrador ? '' : '; <strong>antes de guardar se descargará una copia de seguridad</strong> de la sesión') + '.</div>' +
+        '</div>', 'Continuar', !esBorrador);
       if (!ok) { setStatus('Cancelado. No se ha modificado nada.', 'info'); return; }
 
       avisos.forEach(function (a) { addLog(a.replace(/<[^>]+>/g, ''), 'warn'); });
+      if (!esBorrador) {
+        var copia = descargarCopia(rec, code);
+        if (!copia) throw new Error('No se pudo descargar la copia de seguridad; no se ha modificado nada.');
+        addLog('Copia de seguridad descargada: ' + copia, 'ok');
+      }
       var cuerpo = { name: rec.name, label: rec.label, surveyTypeId: rec.surveyTypeId, companyId: rec.companyId, isActive: rec.isActive, originalLanguage: rec.originalLanguage, nameTranslations: rec.nameTranslations, translationTypeIsAutomatic: rec.translationTypeIsAutomatic, themes: nuevas };
+      if (!esBorrador && rec.sharedWith !== undefined) cuerpo.sharedWith = rec.sharedWith;   // no vaciar con quién está compartida
       setStatus('Guardando los cambios…', 'info'); addLog('PUT: ' + cambian.length + ' temáticas…');
       await api('PUT', API_SESSIONS + '/' + id, cuerpo);
       addLog('Contenido guardado', 'ok');
 
       await sleep(PAUSE_MS);
       var leido = await api('GET', API_SESSIONS + '/' + id);
-      var dif = verificar(leido, nuevas, cambian);
+      var dif = verificar(leido, nuevas, cambian, langs);
       if (dif.length) addLog('El servidor normalizó o difiere en: ' + dif.join(', ') + ' (revisa la sesión en pantalla)', 'warn');
       else addLog('Verificado: lo leído de vuelta coincide con lo enviado', 'ok');
-      addLog('Estado: borrador=' + leido.isDraft + ', publicada=' + leido.isPublished + ', completa=' + leido.completed, 'info');
-      setStatus('&#10003; Sesión <strong>' + esc(code) + '</strong> modificada (' + cambian.length + ' temáticas). Sigue en borrador.', 'ok');
-      kat.showToast('Sesión modificada: ' + code, 'ok');
+      if (leido.isActive !== rec.isActive || leido.isPublished !== rec.isPublished) addLog('Aviso: el estado de la sesión ha cambiado (activa ' + rec.isActive + ' → ' + leido.isActive + ', publicada ' + rec.isPublished + ' → ' + leido.isPublished + ')', 'warn');
+      addLog('Estado: borrador=' + leido.isDraft + ', publicada=' + leido.isPublished + ', activa=' + leido.isActive + ', completa=' + leido.completed, 'info');
+      var nombreFinal = code || ('id ' + id);
+      setStatus('&#10003; Sesión <strong>' + esc(nombreFinal) + '</strong> modificada (' + cambian.length + ' temáticas). Estado: ' + estado + '.', 'ok');
+      kat.showToast('Sesión modificada: ' + nombreFinal, 'ok');
     }
 
     syncMode();
