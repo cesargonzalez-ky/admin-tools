@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var MOD_VERSION = 'session-loader-v3';
+  var MOD_VERSION = 'session-loader-v4';
 
   if (!window.KymatioAdminTools) { console.error('KAT no cargado'); return; }
   var KAT = window.KymatioAdminTools;
@@ -436,6 +436,7 @@
       '</div>' +
       '<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:12px;margin-bottom:12px;font-size:12.5px;color:#0369a1;line-height:1.6">' +
         'Carga el contenido de una sesión de concienciación (7 temáticas) desde un Excel con las hojas <strong>Questions</strong>, <strong>Actions</strong> y <strong>Assets</strong>. ' +
+        'Se carga <strong>siempre lo que trae el Excel</strong>: si trae varios idiomas, la sesión queda en <strong>traducción manual</strong> con todos ellos rellenados. ' +
         '<strong>Nunca publica ni activa</strong> una sesión: al modificar respeta el estado en que esté (borrador o activa).' +
       '</div>' +
       '<div style="display:flex;gap:16px;margin-bottom:10px;font-size:13px">' +
@@ -475,20 +476,25 @@
       el.appendChild(l); el.scrollTop = el.scrollHeight;
     }
 
-    function confirmModal(html, okText, peligro) {
+    function confirmModal(html, okText, peligro, validar) {
       return new Promise(function (resolve) {
         var ov = document.createElement('div');
         ov.id = 'kym-sl-modal';
         ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:20px';
         ov.innerHTML = '<div style="background:white;border-radius:12px;padding:22px;max-width:520px;width:100%;max-height:85vh;overflow:auto;font-size:13.5px;line-height:1.6;color:#1e293b">' +
           '<div style="font-weight:800;font-size:15px;margin-bottom:10px">Confirmar</div>' + html +
+          '<div id="kym-sl-modal-error" style="display:none;margin-top:10px;background:#fff5f5;border:1px solid #fed7d7;border-radius:8px;padding:8px 10px;color:#c53030;font-size:12.5px;font-weight:600"></div>' +
           '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">' +
           '<button id="kym-sl-modal-cancel" style="background:#f1f5f9;border:none;border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:600">Cancelar</button>' +
           '<button id="kym-sl-modal-ok" style="background:' + (peligro ? '#b91c1c' : '#1e293b') + ';color:white;border:none;border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:700">' + esc(okText) + '</button></div></div>';
         document.body.appendChild(ov);
         function cerrar(v) { ov.remove(); resolve(v); }
         ov.querySelector('#kym-sl-modal-cancel').onclick = function () { cerrar(false); };
-        ov.querySelector('#kym-sl-modal-ok').onclick = function () { cerrar(true); };
+        ov.querySelector('#kym-sl-modal-ok').onclick = function () {
+          var msg = validar ? validar(ov) : null;
+          if (msg) { var er = ov.querySelector('#kym-sl-modal-error'); er.textContent = msg; er.style.display = 'block'; return; }   // no se cierra
+          cerrar(true);
+        };
       });
     }
 
@@ -552,6 +558,7 @@
       p.langs.forEach(function (l) { var o = document.createElement('option'); o.value = l; o.textContent = l; sel.appendChild(o); });
       if (p.langs.indexOf('es-es') >= 0) sel.value = 'es-es';
       $('kym-sl-trans').value = p.langs.length > 1 ? 'manual' : 'auto';
+      $('kym-sl-trans').disabled = p.langs.length > 1;   // el Excel manda: varios idiomas → siempre manual
       renderNames();
     };
 
@@ -593,9 +600,11 @@
     async function crear(code) {
       var c = ctx();
       if (!c.id) throw new Error('No hay empresa seleccionada en el contexto.');
-      var original = $('kym-sl-orig').value, auto = $('kym-sl-trans').value === 'auto';
+      var original = $('kym-sl-orig').value;
       if (parsed.langs.indexOf(original) < 0) throw new Error('El idioma original ' + original + ' no está en el Excel.');
-      var langs = auto ? [original] : parsed.langs;
+      var varios = parsed.langs.length > 1;
+      var auto = varios ? false : $('kym-sl-trans').value === 'auto';   // el Excel manda: varios idiomas → manual
+      var langs = parsed.langs.slice();
       var bloqueos = errorsOf(langs);
       if (bloqueos.length) throw new Error('El Excel está incompleto para ' + langs.join(', ') + ': ' + bloqueos.slice(0, 3).join(' · ') + (bloqueos.length > 3 ? ' …(+' + (bloqueos.length - 3) + ')' : ''));
       var nombres = {};
@@ -615,6 +624,7 @@
         '<p style="background:#f1f5f9;border-radius:8px;padding:10px 12px"><strong>' + esc(c.name) + '</strong> <span style="color:#64748b">(ID ' + esc(String(c.id)) + ')</span></p>' +
         '<ul style="margin:0 0 6px 18px;padding:0"><li>Código: <strong>' + esc(code) + '</strong></li><li>Nombre: ' + esc(nombres[original]) + '</li>' +
         '<li>Idioma original: ' + esc(original) + ' · traducción ' + (auto ? 'automática (solo el original)' : 'manual (' + esc(langs.join(', ')) + ')') + '</li>' +
+        (varios ? '<li style="color:#1e40af">El Excel trae varios idiomas: la sesión se crea con <strong>traducción manual</strong> y se rellenan todos.</li>' : '') +
         '<li>Contenido: ' + resumenTemas(themes) + '</li></ul>' +
         '<p style="margin:6px 0 0;color:#64748b;font-size:12.5px">Quedará en <strong>borrador</strong>; no se publica. La empresa no se puede cambiar después.</p>', 'Crear sesión');
       if (!ok) { setStatus('Cancelado. No se ha creado nada.', 'info'); return; }
@@ -658,9 +668,13 @@
       await sleep(PAUSE_MS);
       var empresa = await nombreEmpresa(rec.companyId);
 
-      var original = rec.originalLanguage, auto = !!rec.translationTypeIsAutomatic;
+      var original = rec.originalLanguage, autoActual = !!rec.translationTypeIsAutomatic;
       if (parsed.langs.indexOf(original) < 0) throw new Error('El idioma original de la sesión (' + original + ') no está en el Excel.');
-      var langs = auto ? [original] : parsed.langs;
+      // El Excel manda: con varios idiomas la sesión pasa a (o sigue en) traducción manual; con uno solo no se cambia el modo
+      var varios = parsed.langs.length > 1;
+      var auto = varios ? false : autoActual;
+      var cambiaModo = varios && autoActual;
+      var langs = parsed.langs.slice();
       var bloqueos = errorsOf(langs);
       if (bloqueos.length) throw new Error('El Excel está incompleto para ' + langs.join(', ') + ': ' + bloqueos.slice(0, 3).join(' · ') + (bloqueos.length > 3 ? ' …(+' + (bloqueos.length - 3) + ')' : ''));
 
@@ -668,7 +682,7 @@
       (rec.themes || []).forEach(function (t) { exRaw[t.topicCode] = t; });
       var avisos = [];
       if (rec.usage && rec.usage.structureLocked) avisos.push('La <strong>estructura de la sesión está bloqueada</strong>: el servidor puede rechazar cambios que alteren la estructura. Si lo hace, no se modifica nada.');
-      if (auto && parsed.langs.length > 1) avisos.push('La sesión está en <strong>traducción automática</strong>: solo se carga ' + esc(original) + '; se ignoran ' + esc(parsed.langs.filter(function (l) { return l !== original; }).join(', ')) + ' del Excel.');
+      if (cambiaModo) avisos.unshift('El Excel trae varios idiomas (' + esc(langs.join(', ')) + '): la sesión <strong>pasará de traducción automática a manual</strong>; ' + esc(langs.filter(function (l) { return l !== original; }).join(', ')) + ' se marcará como traducción manual y se rellenará con el contenido del Excel.');
       var conservados = {};
       TOPICS.forEach(function (tp) {
         var ex = exRaw[tp.code]; if (!ex || !ex.action) return;
@@ -692,7 +706,7 @@
         return stable(contenido(t, langs)) !== stable(contenido(exRaw[t.topicCode], langs));
       }).map(function (t) { return t.topicCode; });
 
-      if (!cambian.length) { setStatus('Sin cambios: el contenido de la sesión ya coincide con el Excel. No se ha enviado nada.', 'ok'); addLog('Sin cambios; no se envía nada', 'ok'); return; }
+      if (!cambian.length && !cambiaModo) { setStatus('Sin cambios: el contenido de la sesión ya coincide con el Excel. No se ha enviado nada.', 'ok'); addLog('Sin cambios; no se envía nada', 'ok'); return; }
 
       if (!esBorrador) {
         var quitan = 0;
@@ -704,6 +718,18 @@
       }
 
       var nombreTxt = rec.label ? rec.label + (code ? ' (' + code + ')' : '') : (code || '—');
+      // Lo único que el Excel no trae y la traducción manual necesita: el nombre de la sesión en cada idioma
+      var pedirNombres = auto ? [] : langs.filter(function (l) { return l !== original; });
+      var hayExistentes = pedirNombres.some(function (l) { return String((rec.nameTranslations && rec.nameTranslations[l]) || '').trim(); });
+      var nombresNuevos = {};
+      function validarNombres(ov) {
+        var falta = [];
+        Array.prototype.forEach.call(ov.querySelectorAll('.kym-sl-nombre'), function (i) {
+          var v = i.value.trim(), l = i.getAttribute('data-lang');
+          if (v) nombresNuevos[l] = v; else falta.push(l);
+        });
+        return falta.length ? 'Falta el nombre de la sesión en: ' + falta.join(', ') + '.' : null;
+      }
       var ok = await confirmModal(
         '<div style="border-radius:8px;padding:10px 12px;margin-bottom:10px;' + (esBorrador ? 'background:#f1f5f9;color:#1e293b' : 'background:#fef2f2;border:1px solid #fecaca;color:#991b1b') + '"><strong>Se va a proceder a modificar una sesión ' + estado + '.</strong></div>' +
         '<ul style="list-style:none;margin:0 0 10px;padding:0">' +
@@ -716,8 +742,9 @@
           (f.via === 'surveyId' ? '<div style="color:#92400e">Localizada por <strong>surveyId ' + esc(entrada) + '</strong>: no había ningún código único con ese valor. Comprueba que es la sesión que buscas.</div>' : '') +
           '<div>Temáticas que cambian: <strong>' + cambian.length + ' de 7</strong> (' + esc(cambian.join(', ')) + ') · idiomas que se cargan: ' + esc(langs.join(', ')) + ' · traducción ' + (auto ? 'automática' : 'manual') + '</div>' +
           (avisos.length ? '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-top:6px;color:#92400e">' + avisos.join('<br>') + '</div>' : '') +
+          (pedirNombres.length ? '<div style="margin-top:8px;padding:8px 10px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;color:#1e40af"><div style="margin-bottom:2px"><strong>Nombre de la sesión en cada idioma</strong> (el Excel no lo trae). Nombre actual en ' + esc(original) + ': <em>' + esc(rec.label || '') + '</em>' + (hayExistentes ? '<br>Se proponen los nombres que la sesión ya tiene: déjalos si están bien o cámbialos; los que falten, escríbelos.' : '<br>Escríbelos para poder continuar.') + '</div>' + pedirNombres.map(function (l) { var actual = String((rec.nameTranslations && rec.nameTranslations[l]) || ''); return '<label style="display:block;margin-top:4px;font-size:12px">' + esc(l) + '<input class="kym-sl-nombre" data-lang="' + esc(l) + '" value="' + esc(actual) + '" placeholder="Nombre de la sesión en ' + esc(l) + ' (obligatorio)" style="width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;margin-top:2px"></label>'; }).join('') + '</div>' : '') +
           '<div style="margin-top:6px">El contenido de cada temática del Excel <strong>sustituye</strong> al anterior. No se publica ni se activa nada' + (esBorrador ? '' : '; <strong>antes de guardar se descargará una copia de seguridad</strong> de la sesión') + '.</div>' +
-        '</div>', 'Continuar', !esBorrador);
+        '</div>', 'Continuar', !esBorrador, validarNombres);
       if (!ok) { setStatus('Cancelado. No se ha modificado nada.', 'info'); return; }
 
       avisos.forEach(function (a) { addLog(a.replace(/<[^>]+>/g, ''), 'warn'); });
@@ -726,7 +753,10 @@
         if (!copia) throw new Error('No se pudo descargar la copia de seguridad; no se ha modificado nada.');
         addLog('Copia de seguridad descargada: ' + copia, 'ok');
       }
-      var cuerpo = { name: rec.name, label: rec.label, surveyTypeId: rec.surveyTypeId, companyId: rec.companyId, isActive: rec.isActive, originalLanguage: rec.originalLanguage, nameTranslations: rec.nameTranslations, translationTypeIsAutomatic: rec.translationTypeIsAutomatic, themes: nuevas };
+      var nombresFinal = Object.assign({}, rec.nameTranslations || {}, nombresNuevos);
+      if (!auto && !nombresFinal[original] && rec.label) nombresFinal[original] = rec.label;
+      if (cambiaModo) addLog('La sesión pasa de traducción automática a manual (' + langs.join(', ') + ')', 'info');
+      var cuerpo = { name: rec.name, label: rec.label, surveyTypeId: rec.surveyTypeId, companyId: rec.companyId, isActive: rec.isActive, originalLanguage: rec.originalLanguage, nameTranslations: nombresFinal, translationTypeIsAutomatic: auto, themes: nuevas };
       if (!esBorrador && rec.sharedWith !== undefined) cuerpo.sharedWith = rec.sharedWith;   // no vaciar con quién está compartida
       setStatus('Guardando los cambios…', 'info'); addLog('PUT: ' + cambian.length + ' temáticas…');
       await api('PUT', API_SESSIONS + '/' + id, cuerpo);
@@ -737,10 +767,12 @@
       var dif = verificar(leido, nuevas, cambian, langs);
       if (dif.length) addLog('El servidor normalizó o difiere en: ' + dif.join(', ') + ' (revisa la sesión en pantalla)', 'warn');
       else addLog('Verificado: lo leído de vuelta coincide con lo enviado', 'ok');
+      if (!!leido.translationTypeIsAutomatic !== auto) addLog('Aviso: la sesión sigue con traducción ' + (leido.translationTypeIsAutomatic ? 'automática' : 'manual') + ' y se esperaba ' + (auto ? 'automática' : 'manual'), 'warn');
+      else addLog('Traducción: ' + (auto ? 'automática' : 'manual (' + langs.join(', ') + ')'), 'ok');
       if (leido.isActive !== rec.isActive || leido.isPublished !== rec.isPublished) addLog('Aviso: el estado de la sesión ha cambiado (activa ' + rec.isActive + ' → ' + leido.isActive + ', publicada ' + rec.isPublished + ' → ' + leido.isPublished + ')', 'warn');
       addLog('Estado: borrador=' + leido.isDraft + ', publicada=' + leido.isPublished + ', activa=' + leido.isActive + ', completa=' + leido.completed, 'info');
       var nombreFinal = code || ('id ' + id);
-      setStatus('&#10003; Sesión <strong>' + esc(nombreFinal) + '</strong> modificada (' + cambian.length + ' temáticas). Estado: ' + estado + '.', 'ok');
+      setStatus('&#10003; Sesión <strong>' + esc(nombreFinal) + '</strong> modificada (' + cambian.length + ' temáticas' + (cambiaModo ? ', ahora en traducción manual' : '') + '). Estado: ' + estado + '.', 'ok');
       kat.showToast('Sesión modificada: ' + nombreFinal, 'ok');
     }
 
